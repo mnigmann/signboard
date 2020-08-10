@@ -1,0 +1,59 @@
+{
+  "objects": [
+    {
+      "type": "phrase",
+      "phrase": "3",
+      "colors": [{
+        "color": [128, 128, 128],
+        "background": [0, 0, 0],
+        "duration": 1
+      }],
+      "step": 600,
+      "speed": 1000,
+      "offset": 15
+    },
+    {
+      "type": "phrase",
+      "phrase": "2",
+      "colors": [{
+        "color": [128, 128, 128],
+        "background": [0, 0, 0],
+        "duration": 1
+      }],
+      "step": 600,
+      "speed": 1000,
+      "offset": 15
+    },
+    {
+      "type": "phrase",
+      "phrase": "1",
+      "colors": [{
+        "color": [128, 128, 128],
+        "background": [0, 0, 0],
+        "duration": 1
+      }],
+      "step": 600,
+      "speed": 1000,
+      "offset": 15
+    },
+    {
+      "type": "phrase",
+      "phrase": "0!",
+      "colors": [{
+        "color": [128, 128, 128],
+        "background": [0, 0, 0],
+        "duration": 1
+      }],
+      "step": 600,
+      "speed": 1000,
+      "offset": 19
+    }
+  ],
+  "settings": {
+    "rows": 14,
+    "cols": 20,
+    "scale": 2,
+    "alphabet": "letters.json"
+  }
+}
+

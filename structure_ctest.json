@@ -1,0 +1,96 @@
+{
+  "settings": {
+    "rows": 14,
+    "cols": 20,
+    "scale": 2,
+    "alphabet": "letters.json"
+  },
+  "objects": [
+    {
+      "step": 1,
+      "offset": 0,
+      "speed": 10,
+      "colors": [
+        {
+          "color": [
+            255,
+            0,
+            255
+          ],
+          "duration": 1,
+          "background": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "color": [
+            255,
+            255,
+            0
+          ],
+          "duration": 1,
+          "background": [
+            0,
+            255,
+            255
+          ]
+        }
+      ],
+      "type": "phrase",
+      "phrase": "abcdefgh"
+    },
+    {
+      "time": 2000,
+      "path": "rabbit_short1.png",
+      "type": "image",
+      "startoffset": 5
+    },
+    {
+      "step": 1,
+      "offset": 10,
+      "speed": 10,
+      "colors": [
+        {
+          "color": [
+            0,
+            255,
+            0
+          ],
+          "duration": 1,
+          "background": [
+            0,
+            0,
+            255
+          ]
+        }
+      ],
+      "type": "phrase",
+      "phrase": "keep fingers out of cages"
+    },
+    {
+      "step": 3,
+      "frames": [
+        {
+          "time": 2,
+          "path": "rabbit_short1.png",
+          "offset": 0
+        },
+        {
+          "time": 2,
+          "path": "rabbit_short2.png",
+          "offset": 1
+        },
+        {
+          "time": 2,
+          "path": "rabbit_short3.png",
+          "offset": 2
+        }
+      ],
+      "start": 0,
+      "type": "animation",
+      "iterations": 40
+    }
+  ]
+}

@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<style>
+  td,th {
+    border: 1px solid black;
+  }
+  td.disabled, th.disabled {
+    background: #d7d7d7;
+  }
+  table {
+    border-collapse: collapse;
+    cellspacing: 0;
+  }
+  textarea, td {
+    white-space: nowrap;
+  }
+  textarea {
+    resize: none; 
+    width: 400px;
+    height: calc(1em + 2px);
+    overflow-x: hidden;
+  }
+  #json {
+    font-family: monospace;
+  }
+  button {
+    display: inline;
+  }
+</style>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+<script src="jscolor.js"></script>
+<script>
+  p = x=>parseInt(x);
+  n = x=>x;
+  c = x=>(x.match(/([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i).slice(1).map(x=>parseInt(x,16)))
+  window.main_struc = {
+    phrase: [["phrase", n], ["offset", p], ["step", p], ["speed", p]],
+    image: [["path",n], ["startoffset",p], ["time",p]],
+    animation: [["start",p], ["step",p], ["iterations",p]]
+  }
+  window.frame_struc = [["path", n], ["offset", p], ["time", p]]
+  window.color_struc = [["background", c], ["color", c], ["duration", n]];
+  
+  function loadjson() {
+    $("#json").val(JSON.stringify(window.json, null, 2));
+  }
+  
+  $.ajax({
+    url: "/getfile?fname="+window.location.href.split("fname=")[1],
+    error: alert,
+    success: function(data) {
+      json = JSON.parse(data);
+      window.json = json;
+      loadjson();
+      update();
+    },
+    error: function(data) {
+        console.log(arguments);
+        document.body.innerHTML = data.responseText;
+    }
+  })
+  function update() {
+      $("#output tr:gt(1)").remove()
+      var json = window.json;
+      $.each(json.objects, function(i, x) {
+        var tr = $("<tr></tr>");
+        $("#output").append(tr);
+        tr.append($("<td></td>").html(i.toString()+"<button onclick=\"del.call(this)\">Delete</button>"));
+        tr.append($("<td></td>").html(x.type));
+        
+        tr.append($("<th></th>").html({phrase:"Phrase",image:"Path",animation:"Num frames"}[x.type]));
+        var d = $("<td colspan=></td>");
+        if (x.type == "phrase" || x.type == "image") d.append($("<textarea></textarea>").val(x.phrase||x.path));
+        else d.html(x.frames.length+" frames <button onclick=\"frameeditor.call(this);\">Edit</button>")
+        tr.append(d);
+        
+        tr.append($("<th>Offset</th>"));
+        tr.append($("<td></td>").append($("<textarea style=\"width:50px;\"></textarea>").val(x.start || x.offset || x.startoffset || "0")))
+        
+        tr.append($("<th></th>").html({phrase:"Step",image:"Time",animation:"Step"}[x.type]))
+        tr.append($("<td></td>").append($("<textarea style=\"width:50px;\"></textarea>").val(x.step || x.time)))
+        
+        tr.append($("<th></th>").html({phrase:"Speed",image:"",animation:"Num iterations"}[x.type]).addClass(x.type=="image"?"disabled":""))
+        tr.append(x.type=="image"?"<td class=disabled></td>":$("<td></td>").append($("<textarea style=\"width:50px;\"></textarea>").val(x.speed || x.iterations || "0")))
+        
+        tr.append($("<th></th>").html(x.type=="phrase"?"Colors":"").addClass(x.type=="phrase"?"":"disabled"))
+        if (x.type == "phrase") {
+          var td = $("<td></td>");
+          var svg = $("<canvas height=\"28\"></canvas>");
+          svg.attr("width", 28*x.colors.length);
+          var ctx = svg[0].getContext('2d')
+          
+          ctx.strokeStyle = "#000"
+          ctx.lineWidth = "1px"
+          for (var c=0; c<x.colors.length; c++) {
+            var col = x.colors[c];
+            ctx.fillStyle = "rgb("+col.background.join()+")";
+            ctx.fillRect(2+28*c,2,24,24);
+            ctx.strokeRect(2+28*c,2,24,24);
+            ctx.fillStyle = "rgb("+col.color.join()+")";
+            ctx.fillRect(8+28*c,8,12,12);
+          }
+          ctx.stroke()
+          td.append(svg);
+          td.append("<button onclick=\"coloreditor.call(this);\">Edit</button>")
+          tr.append(td)
+        } else {
+          tr.append("<td class=disabled></td>")
+        }
+        
+        //$("#output").append(tr);
+        $.each($("td", tr), function (j,y) {
+          y.setAttribute("data-objid", i);
+        })
+        $.each($("textarea", tr), function(j,y) {
+          y.setAttribute("data-propid", j);
+          y.addEventListener("input", function(evt) {
+            var objid = this.parentElement.getAttribute('data-objid');
+            var propid = this.getAttribute('data-propid');
+            var struc = window.main_struc[window.json.objects[objid].type][propid];
+            window.json.objects[objid][struc[0]] = struc[1](this.value)
+            loadjson();
+          })
+        })
+      })
+  }
+  
+  function frameeditor() { 
+    $("#frames tr:gt(1)").remove();
+    $("#colors").css({display: 'none'})
+    var objid = this.parentElement.getAttribute('data-objid');
+    $("#fhead").attr('data-objid', objid)
+    $.each(window.json.objects[objid].frames, function (i, x) {
+      var tr = $("<tr></tr>");
+      tr.append($("<td></td>").html(i+"<button onclick=\"del_frame.call(this)\">Delete</button>"))
+      tr.append($("<td></td>").append($("<textarea></textarea>").val(x.path)));
+      tr.append($("<td></td>").append($("<textarea style=\"width:50px;\"></textarea>").val(x.offset)));
+      tr.append($("<td></td>").append($("<textarea style=\"width:50px;\"></textarea>").val(x.time)));
+      $("td", tr).attr('data-objid', objid).attr('data-frmid', i);
+      $.each($("textarea", tr), function(j,y) {
+        y.setAttribute("data-frmid", i);
+        y.setAttribute("data-propid", j);
+        y.addEventListener("input", function(evt) {
+          var objid = this.parentElement.getAttribute("data-objid");
+          var frmid = this.getAttribute("data-frmid");
+          var propid = this.getAttribute("data-propid");
+          window.json.objects[objid].frames[frmid][window.frame_struc[propid][0]] = window.frame_struc[propid][1](this.value)
+          loadjson();
+        })
+      })
+      $("#frames").append(tr);
+    })
+    $("#frames").css({display:'block'});
+  }
+
+  function coloreditor() { 
+    $("#colors tr:gt(1)").remove();
+    $("#frames").css({display: 'none'})
+    var objid = this.parentElement.getAttribute('data-objid');
+    $("#chead").attr('data-objid', objid)
+    $.each(window.json.objects[objid].colors, function (i, x) {
+      var tr = $("<tr></tr>");
+      tr.append($("<td></td>").html(i+"<button onclick=\"del_color.call(this);\">Delete</button>"))
+      tr.append($("<td></td>").append($("<input>")));
+      tr.append($("<td></td>").append($("<input>")));
+      tr.append($("<td></td>").append($("<input>").val(x.duration)));
+      $.each($("td", tr).slice(1,3), function (j, y) {
+        var picker = new jscolor(y.childNodes[0]);
+        picker.fromRGB.apply(picker, (j==0?x.background:x.color))
+      })
+      
+      $("td", tr).attr('data-objid', objid).attr('data-clrid', i);
+      $.each($("textarea, input", tr), function(j,y) {
+        y.setAttribute("data-clrid", i);
+        y.setAttribute("data-propid", j);
+        y.addEventListener("change", function(evt) {
+          var objid = this.parentElement.getAttribute("data-objid");
+          var frmid = this.getAttribute("data-clrid");
+          var propid = this.getAttribute("data-propid");
+          window.json.objects[objid].colors[frmid][window.color_struc[propid][0]] = window.color_struc[propid][1](this.value)
+          loadjson();
+        })
+      })
+      $("#colors").append(tr);
+    })
+    $("#colors").css({display:'block'});
+  }
+  
+  function insert() {
+    $("#frames, #colors").css({display: 'none'});
+    var idx = parseInt(window.prompt("Enter index, where 0 = insert at beginning, 1=after 1 element, etc."))
+    if (idx != idx) return
+    var type = window.prompt("Enter the type: phrase, image, or animation");
+    if (type == null) return;
+    var n = {};
+    switch(type) {
+      case "phrase":
+        n = {
+          phrase: "",
+          offset: 0,
+          step: 1,
+          speed: 10,
+          type: "phrase",
+          colors: []
+        }; break;
+      case "image":
+        n = {
+          path: "",
+          startoffset: 0,
+          time: 0,
+          type: "image"
+        }; break;
+      case "animation":
+        n = {
+          type: "animation",
+          step: 1,
+          start: 0,
+          iterations: 1,
+          frames: []
+        }; break;
+    }
+    window.json.objects.splice(idx, 0, n);
+    loadjson();
+    update();
+  }
+  
+  function insert_color() {
+    var idx = parseInt(window.prompt("Enter index, where 0 = insert at beginning, 1 = insert after 1 element, etc."))
+    if (idx != idx) return;
+    var objid = this.parentElement.getAttribute('data-objid');
+    window.json.objects[objid].colors.splice(idx, 0, {
+      color: [0,0,0],
+      background: [0,0,0],
+      duration: 1
+    })
+    loadjson();
+    update();
+    coloreditor.call(this);
+  }
+  
+  function insert_frame() {
+    var idx = parseInt(window.prompt("Enter index, where 0 = insert at beginning, 1 = insert after 1 element, etc."))
+    if (idx != idx) return;
+    var objid = this.parentElement.getAttribute('data-objid');
+    window.json.objects[objid].frames.splice(idx, 0, {
+      path: "",
+      offset: 0,
+      time: 10
+    })
+    loadjson();
+    update();
+    frameeditor.call(this);
+  }
+  
+  function del_frame() {
+    var objid = this.parentElement.getAttribute("data-objid")
+    var idx = this.parentElement.getAttribute("data-frmid");
+    window.json.objects[objid].frames.splice(idx ,1);
+    loadjson();
+    update();
+    frameeditor.call(this);
+  }
+  
+  function del_color() {
+    var objid = this.parentElement.getAttribute("data-objid");
+    var idx = this.parentElement.getAttribute("data-clrid");
+    window.json.objects[objid].colors.splice(idx, 1);
+    loadjson();
+    update();
+    coloreditor.call(this);
+  }
+  
+  function del() {
+    $("#frames, #colors").css({display: 'none'})
+    var objid = this.parentElement.getAttribute("data-objid");
+    window.json.objects.splice(objid, 1);
+    loadjson();
+    update();
+  }
+</script>
+
+<table id="output">
+  <tr>
+    <th colspan="12">Objects <button onclick="insert();">Insert one</button></th>
+  </tr>
+  <tr>
+    <th>Item #</th>
+    <th>Type</th>
+    <th colspan="10">Object data</th>
+  </tr>
+</table>
+
+<table style="display:none;" id="frames">
+  <tr>
+    <th colspan=4 id=fhead>
+      Frame editor
+      <button onclick="$('#frames').css({display: 'none'}); update();">Finish</button>
+      <button onclick="insert_frame.call(this);">Insert one</button>
+    </th>
+  </tr>
+  <tr>
+    <th>Frame #</th>
+    <th>Path</th>
+    <th>Offset</th>
+    <th>Time</th>
+  </tr>
+</table>
+
+<table id="colors" style="display: none;">
+  <tr>
+    <th colspan=4 id=chead>
+      Color editor
+      <button onclick="$('#colors').css({display: 'none'}); update();">Finish</button>
+      <button onclick="insert_color.call(this);">Insert one</button>
+    </th>
+  </tr>
+  <tr>
+    <th>Color #</th>
+    <th>Background</th>
+    <th>Text color</th>
+    <th>Duration</th>
+  </tr>
+</table>
+
+<form method=post>
+    <input type=hidden name=json id=json>
+    <input type=submit value=Save>
+</form>
