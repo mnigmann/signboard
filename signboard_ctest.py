@@ -187,7 +187,7 @@ def render(objects):
 
 
 
-def load(root, src = None):
+def load(src = None, root=root):
   global letters, objects, WIDTH, HEIGHT, settings, ROWS, COLS, LENGTH, OUTPUT_TYPE, strip, images, struc, scale, sHeight, sWidth, letters_scaled, phrases_rendered
   src = src or "structure_ctest.json"
   with open(root+ "/"+src) as struc: 

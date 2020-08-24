@@ -22,10 +22,29 @@ import hashlib
 import base64
 import web_manager
 import threading
+import re
 #import lcd_keyboard_manager as lcd_key
 
-baud = 4000000
+arg = " ".join(sys.argv)
 
+# Regexes match the argument name followed by a string containing non-space characters, except when escaped with a backslash
+
+filename = re.search(r"--file ((?:\\ |[^ \n])+)", arg)
+if filename is None: 
+    print("Please specify structure file using --file argument")
+    exit()
+else: filename = filename.group(1)
+
+portname = re.search(r"--port ((?:\\ |[^ \n])+)", arg)
+if portname is None: portname = ""
+else: portname = portname.group(1)
+
+recompile = "--recompile" in sys.argv
+
+baud = 4000000
+current_file = filename
+
+web_manager.root = signboard.root
 
 def color2bytes(x):
     b = bytearray("   ", "utf-8")
@@ -44,9 +63,8 @@ def compile_frame(frame, col, dtime):
 def compile_frames(objs, comp_fname, fname):
     #check if previous data is available
     v = os.listdir()
-    if len(sys.argv) > 1 and "--recompile" in sys.argv:
+    if recompile: 
         print("Forced recompile")
-        pass
     elif comp_fname in v:
         print("version found")
         with open(comp_fname) as f:
@@ -124,15 +142,16 @@ def compile_frames(objs, comp_fname, fname):
 
 
 
-def reload():
+def reload(f=current_file):
     global p, headers, objs, numObjects, currObject, numFrames, currFrame
-    signboard.load("/home/pi/neopixel_new/neopixel", "structure_ctest.json")
+    signboard.load(f)
     objs = signboard.objects
-    p, headers = compile_frames(objs, "main.compiled", "structure_ctest.json")
+    p, headers = compile_frames(objs, "active.compiled", f)
     numObjects = len(p)
     currObject = -1
     numFrames = 1
     currFrame = 0
+    current_file = f
 
 
 if __name__ == "__main__":
@@ -168,13 +187,11 @@ if __name__ == "__main__":
             hcc+=1	#TODO: finish chunk generator
     """
 
-    if len(sys.argv) >= 2:
-        port = sys.argv[1]
-    else:
-        print("Please specify port name after command")
+    if portname == "": 
+        print("Please specify port name with --port argument")
         exit()
 
-    ser = serial.Serial(port, baudrate=baud)
+    ser = serial.Serial(portname, baudrate=baud)
 
 
     headerSent = False
