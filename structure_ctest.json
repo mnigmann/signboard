@@ -1,9 +1,10 @@
 {
   "settings": {
     "rows": 14,
-    "cols": 20,
+    "cols": 150,
     "scale": 2,
-    "alphabet": "letters.json"
+    "alphabet": "letters.json",
+    "password": "abcdef"
   },
   "objects": [
     {

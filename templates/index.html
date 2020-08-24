@@ -1,0 +1,10 @@
+<form method=post>
+    <select name=file autocomplete=username>
+        {% for x in files %}
+	<option value="{{x}}">{{x}}</option>
+	{% endfor %}
+    </select>
+    <input type=password id=pw name=password></br>
+    <button>Go</button>
+</form>
+
