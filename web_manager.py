@@ -3,7 +3,7 @@ from json import loads, load, dumps
 import os
 
 root = ""
-
+compiling = False
 
 app = Flask(__name__)
 
@@ -41,6 +41,7 @@ def main():
 
 @app.route("/openfile", methods=["GET", "POST"])
 def openfile():
+    global compiling
     fname = request.args.get("fname", "")
     if not fname: return redirect("/")
     if fname not in loads(session['authorized']): return redirect("/")
@@ -52,8 +53,10 @@ def openfile():
             try:
                 with open(fname, "w") as f: 
                     f.write(request.form.get("json"))
-                if use_reload: reload(fname)
-                else: reload()
+                if use_reload and not compiling:
+                    compiling = True
+                    reload(fname)
+                    compiling = False
             except FileNotFoundError: return abort(404)
 
         if request.args:
