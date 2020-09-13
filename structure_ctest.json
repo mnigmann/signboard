@@ -1,7 +1,7 @@
 {
   "settings": {
     "rows": 14,
-    "cols": 150,
+    "cols": 20,
     "scale": 2,
     "alphabet": "letters.json",
     "password": "abcdef"

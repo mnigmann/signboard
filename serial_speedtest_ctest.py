@@ -23,6 +23,7 @@ import base64
 import web_manager
 import threading
 import re
+import json
 #import lcd_keyboard_manager as lcd_key
 
 arg = " ".join(sys.argv)
@@ -63,25 +64,34 @@ def compile_frame(frame, col, dtime):
 def compile_frames(objs, comp_fname, fname):
     #check if previous data is available
     v = os.listdir()
+    p = [None]*len(objs); headers = [None]*len(objs)
+    dont_render = []
+    
     if recompile: 
         print("Forced recompile")
     elif comp_fname in v:
         print("version found")
         with open(comp_fname) as f:
-            h = f.readline()
-            comp = f.readline()
-            headers = f.readline()
-            h_n = hashlib.md5()
-            with open(fname) as s:
-                h_n.update(s.read().encode())
-            if h_n.hexdigest() == h.strip():
-                print("version found with matching hash")
-                return eval(base64.b64decode(comp.strip().encode()).decode()), eval(base64.b64decode(headers.strip().encode()).decode())
+            j = json.load(f)
+            for obj_index, obj in enumerate(j):
+                h_n = hashlib.md5()
+                h_n.update(json.dumps(objs[obj_index], sort_keys=True).encode())
+                if h_n.hexdigest() == obj['hash'].strip():
+                    print("version found with matching hash for object", obj_index)
+                    headers[obj_index] = (eval(base64.b64decode(obj['header'].encode()).decode()))
+                    p[obj_index] = (eval(base64.b64decode(obj['frames'].encode()).decode()))
+                    print(obj['header'], base64.b64decode(obj['header'].encode()).decode())
+                    dont_render.append(obj_index)
+                else:
+                    print("hashes do not match for {}: old={} and new={}".format(obj_index, obj['hash'].strip(), h_n.hexdigest()))
+                    headers[obj_index] = (None)
+                    p[obj_index] = (None)
+                    
              
     
 
 
-    rendered = signboard.render(objs)
+    rendered = signboard.render(objs, dont_render)
     p_in = list(filter(lambda x: x is not None, rendered))
 
     slen = signboard.ROWS*signboard.COLS
@@ -91,8 +101,12 @@ def compile_frames(objs, comp_fname, fname):
 
     obj2colors = lambda obj: list(map(list, set(map(tuple, (col for frm in obj for col in frm)))))
 
-    p = []; headers = []; pcolors = []
+    pcolors = []
+    print("Before compiling", [bool(x) for x in p])
     for index, obj in enumerate(p_in):
+        if bool(p[index]): 
+            print("Skipping compile for", index)
+            continue
         t = objs[index]['type']
         
         if t!='phrase': pcol = [-1] + obj2colors(obj)
@@ -104,7 +118,7 @@ def compile_frames(objs, comp_fname, fname):
         phead = bytearray([int(nfrms>>8), nfrms&255, int(slen>>8), slen&255])
         for col in pcol[1:]:
             phead += bytearray(col)                 # put colors in the header
-        headers.append(phead)
+        headers[index] = phead
         
         pfrms = []
         #print("First LED value", obj[0][0], pcol.index(obj[0][0]))
@@ -126,16 +140,23 @@ def compile_frames(objs, comp_fname, fname):
                 if t=='animation': dtime = objs[index]['frames'][num%len(objs[index]['frames'])]['time']
                 pfrms.append(compile_frame(frm, pcol, dtime))  # Compile a frame with the current list of colors
         
-        p.append(pfrms)
+        p[index] = pfrms
         
     with open(comp_fname, "w") as f:
-        h_n = hashlib.md5()
-        with open(fname) as s:
-            h_n.update(s.read().encode())
-        f.write(h_n.hexdigest()+"\n")
-        f.write(base64.b64encode(str(p).encode()).decode()+"\n")
-        f.write(base64.b64encode(str(headers).encode()).decode()+"\n")
-        
+        f.write("[\n")
+        for i in range(len(objs)):
+            object_hash = hashlib.md5()
+            object_hash.update(json.dumps(objs[i], sort_keys=True).encode())
+            print("Saving with hash {} for {}".format(object_hash.hexdigest(), i))
+
+            if i != 0: f.write(",\n")
+            f.write('    {\n        "hash": "%s",\n' % (object_hash.hexdigest()))
+            f.write('        "header": "{}",\n'.format(base64.b64encode(str(headers[i]).encode()).decode()))
+            f.write('        "frames": "{}"\n'.format(base64.b64encode(str(p[i]).encode()).decode()))
+            f.write("    }")
+        f.write("\n]\n")
+
+    print("After compiling", [bool(x) for x in p], [(i, len(x)) for i, x in enumerate(p) if isinstance(x, list)]) 
     
     return p, headers
         
@@ -208,7 +229,9 @@ if __name__ == "__main__":
                     currObject = 0
                     currCycle += 1
                 
-                numFrames = len(p[currObject]) if objs[currObject]['type']!='phrase' else len(p[currObject][0])
+                numFrames = len(p[currObject]) \
+                                if objs[currObject]['type']!='phrase' \
+                                else len(p[currObject][0])
                 currFrame = 0                       # just to be safe
                 headerSent = True
                 ser.write(headers[currObject])
