@@ -131,9 +131,12 @@ def display_image(img, offset):
 
 
 
-def render(objects):
+def render(objects, mask=[]):
     phrases_rendered = []
     for i, object in enumerate(objects):
+        if i in mask:
+            phrases_rendered.append([])
+            continue
         print("REndering", i, object, object['type'])
         if object['type'] != 'phrase': 
             ### IMAGE ###
