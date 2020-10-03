@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<ol id="files">
+</ol>
+<form method=post enctype=multipart/form-data id="form">
+<input type=file name=file />
+<input type=submit value=Upload />
+</form>
+
+<script>
+var files = {{ files|tojson }}
+console.log(files)
+var li = document.getElementById("files");
+for (var x=0; x<files.length; x++) {
+    li.innerHTML += '<li><button onclick="del('+x+')">Delete</button>'+files[x]+'</li><img src="/images/'+files[x]+'"/>';
+}
+function del(index) {
+    if (window.confirm("Are you sure you want to delete "+files[index]+"? This action can't be undone")) {
+        document.getElementById("form").innerHTML += "<input type=hidden name=delid value="+index+">";
+        document.getElementById("form").submit();
+    }
+}
+</script>

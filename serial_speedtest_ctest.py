@@ -73,19 +73,20 @@ def compile_frames(objs, comp_fname, fname):
         print("version found")
         with open(comp_fname) as f:
             j = json.load(f)
-            for obj_index, obj in enumerate(j):
-                h_n = hashlib.md5()
-                h_n.update(json.dumps(objs[obj_index], sort_keys=True).encode())
-                if h_n.hexdigest() == obj['hash'].strip():
-                    print("version found with matching hash for object", obj_index)
-                    headers[obj_index] = (eval(base64.b64decode(obj['header'].encode()).decode()))
-                    p[obj_index] = (eval(base64.b64decode(obj['frames'].encode()).decode()))
-                    print(obj['header'], base64.b64decode(obj['header'].encode()).decode())
-                    dont_render.append(obj_index)
-                else:
-                    print("hashes do not match for {}: old={} and new={}".format(obj_index, obj['hash'].strip(), h_n.hexdigest()))
-                    headers[obj_index] = (None)
-                    p[obj_index] = (None)
+            if len(j) == len(objs):
+                for obj_index, obj in enumerate(j):
+                    h_n = hashlib.md5()
+                    h_n.update(json.dumps(objs[obj_index], sort_keys=True).encode())
+                    if h_n.hexdigest() == obj['hash'].strip():
+                        print("version found with matching hash for object", obj_index)
+                        headers[obj_index] = (eval(base64.b64decode(obj['header'].encode()).decode()))
+                        p[obj_index] = (eval(base64.b64decode(obj['frames'].encode()).decode()))
+                        print(obj['header'], base64.b64decode(obj['header'].encode()).decode())
+                        dont_render.append(obj_index)
+                    else:
+                        print("hashes do not match for {}: old={} and new={}".format(obj_index, obj['hash'].strip(), h_n.hexdigest()))
+                        headers[obj_index] = (None)
+                        p[obj_index] = (None)
                     
              
     

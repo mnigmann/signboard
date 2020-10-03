@@ -1,6 +1,7 @@
-from flask import Flask, render_template, request, abort, session, redirect
+from flask import Flask, render_template, request, abort, session, redirect, send_file
 from json import loads, load, dumps
 import os
+from werkzeug.utils import secure_filename
 
 root = ""
 compiling = False
@@ -65,6 +66,28 @@ def openfile():
     else: 
         print("Unauthorized")
         return abort(403)
+
+@app.route("/images", methods=["GET", "POST"])
+def images():
+    if len(loads(session["authorized"])) == 0: return redirect("/")
+    if request.method == "POST":
+        try:
+            if "delid" in request.form:
+                os.remove(root + "/images/" + sorted(os.listdir(root + "/images/"))[int(request.form['delid'])])
+            else:
+                if "file" not in request.files: return redirect("/images")
+                file = request.files["file"]
+                if file.filename == "" or "." not in file.filename or file.filename.split(".")[-1]!="png": return redirect("/images")
+                print("File received", file.filename)
+                filename = secure_filename(file.filename)
+                file.save(root + "/images/" + filename)
+        except Exception as e: print(e)
+    return render_template("images.html", files=sorted(os.listdir(root+"/images/")))
+
+@app.route("/images/<string:file>")
+def get_image(file):
+    return send_file(root+"/images/"+file)
+        
     
 @app.route("/getfile")
 def struc():
