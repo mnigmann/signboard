@@ -49,6 +49,12 @@
       "startoffset": 5
     },
     {
+      "path": "out.png",
+      "startoffset": 0,
+      "time": 2000,
+      "type": "image"
+    },
+    {
       "step": 1,
       "offset": 10,
       "speed": 10,
