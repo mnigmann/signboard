@@ -102,25 +102,31 @@ def compile_frames(objs, comp_fname, fname):
 
     obj2colors = lambda obj: list(map(list, set(map(tuple, (col for frm in obj for col in frm)))))
 
-    pcolors = []
+#    pcolors = []
+    comp_time = time.time()
     print("Before compiling", [bool(x) for x in p])
+
+    
+   
     for index, obj in enumerate(p_in):
         if bool(p[index]): 
             print("Skipping compile for", index)
             continue
         t = objs[index]['type']
         
+#        print(index)
+#        print("  Acquiring colors")
         if t!='phrase': pcol = [-1] + obj2colors(obj)
         else: pcol = [-1] + [y for x in obj for y in obj2colors(x)]
-        pcolors.append(pcol)
-        print("Colors are", pcol)
+#        pcolors.append(pcol)
+        print("  Colors are", pcol)
         
         nfrms = len(obj) if t!='phrase' else len(obj[0])
         phead = bytearray([int(nfrms>>8), nfrms&255, int(slen>>8), slen&255])
         for col in pcol[1:]:
             phead += bytearray(col)                 # put colors in the header
         headers[index] = phead
-        
+#        print("Header compiled")
         pfrms = []
         #print("First LED value", obj[0][0], pcol.index(obj[0][0]))
         #print(compile_frame(obj[0][:10], pcol, 2))
@@ -157,7 +163,7 @@ def compile_frames(objs, comp_fname, fname):
             f.write("    }")
         f.write("\n]\n")
 
-    print("After compiling", [bool(x) for x in p], [(i, len(x)) for i, x in enumerate(p) if isinstance(x, list)]) 
+    print("After compiling", [bool(x) for x in p], [(i, len(x)) for i, x in enumerate(p) if isinstance(x, list)], time.time()-comp_time) 
     
     return p, headers
         
@@ -220,8 +226,11 @@ if __name__ == "__main__":
 
     lastHeaderSent = 0 
 
+    ser.flushInput()
 
     try:
+        print("Sending interrupt frame")
+        ser.write(b'\xff\xff\xff\x00')
         while True:
             v = ser.read()
             if v == b"H": 
@@ -236,7 +245,7 @@ if __name__ == "__main__":
                 currFrame = 0                       # just to be safe
                 headerSent = True
                 ser.write(headers[currObject])
-                print("LOADING", currObject)
+                print("\n LOADING", currObject)
 #                print(numFrames, "num frames recvd", ser.readline())
 #                print("frame size recvd", ser.readline())
 #                print('time since last header', time.time() - lastHeaderSent)
@@ -252,9 +261,10 @@ if __name__ == "__main__":
                         v = p[currObject]
                         ser.write(v[currCycle%len(v)][currFrame])
                         #print("writing color", currCycle%len(v))
+                    print("\rServing frame "+str(currFrame), end="")
                 else:
                     print("Sending interrupt frame")
-                    ser.write(b"\xff\xff\xff")      # interrupt frame
+                    ser.write(b"\xff\xff\xff\x00")      # interrupt frame
 #                    print("received", ser.readline())
                 #print("curr frame", currFrame)
                 #print("curr object", currObject)
@@ -268,5 +278,7 @@ if __name__ == "__main__":
             #print(v)
             #print("-----------------------------------")
     finally:
+        print("Sending interrupt frame - clearing")
+        ser.write(b"\xff\xff\xff\x00")
         ser.close()
     

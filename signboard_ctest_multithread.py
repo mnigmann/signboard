@@ -19,6 +19,8 @@ import subprocess
 import re
 import sys
 import traceback
+import time
+import multiprocessing
 #sys.stderr = open("/home/pi/signboard_err.log", 'w')
 #sys.stdout = open("/home/pi/signboard.log", 'w')
 
@@ -129,15 +131,70 @@ def display_image(img, offset):
       setPixel(ROWS-size[1]+r, c+offset, data[r][c])
       #if data[r][c] != (0,0,0): print(data[r][c])
 
+def getdim(arr):
+    if not isinstance(arr, list): return []
+    return [len(arr)]+getdim(arr[0])
 
+def render_phrase(i, object, begin, end):
+    pfrms = []
+    for color in object['colors']:
+        pfrms.append([])
+        index = object['step']*begin + object['offset']
+        fnum = begin
+        while True:
+            currFrame = [color['background']]*LENGTH
+            for ci, c in enumerate(object['phrase']):
+                l = letters_scaled[c] if c in letters_scaled else letters_scaled['uc']
+                offset = COLS-index+(ci*scale*(WIDTH+1))
+                if -offset > sWidth or offset > COLS: continue           # If the letter is off the left of the screen or off the right of the screen, don't render
+                for x in range(sHeight):                            #render a letter
+                    for y in range(sWidth):
+                        setPixel(ROWS-sHeight+x, y+offset, color['color'] if l[x][y] else color['background'], currFrame)     #Set a pixel
+            pfrms[-1].append(currFrame)
+            index += object['step']
+            fnum += 1
+            if fnum >= end:
+                break
+    return i, object, begin, end, pfrms
+
+def render_animation(i, object, begin, end):
+    print("rendering an animation")
+    anim_frames = len(object['frames'])
+    frames = []
+    for x in range(object['iterations']):
+        for iy, y in enumerate(object['frames']):
+            if not begin <= (anim_frames*x+iy) < end: continue
+            frm = [[0, 0, 0]]*LENGTH
+            h = images[y['path']][1][1]
+            for rn, r in enumerate(images[y['path']][0]):
+                for cn, c in enumerate(r):
+                    setPixel(ROWS-h+rn, cn+object['start']+object['step']*x+y['offset'], list(c), frm)
+            frames.append(frm)
+    return i, object, begin, end, frames
+
+def apply_results(args):
+    global phrases_rendered
+    i, object, begin, end, p = args
+    if object['type'] == 'phrase':
+        for c in range(len(object['colors'])):
+            np = phrases_rendered[i][c].copy()
+            np[begin:begin+50] = p[c]
+            phrases_rendered[i][c] = np
+    else:
+        phrases_rendered[i][begin:end] = p
+        #print(p[0])
+        #if i == 4: print(list(filter(lambda x: x[1] is None, enumerate(phrases_rendered[i]))))
 
 def render(objects, mask=[]):
-    phrases_rendered = []
+    global phrases_rendered
+    phrases_rendered = [None]*len(objects)
+    phrase_begin = time.time()
+    pool = multiprocessing.Pool()
     for i, object in enumerate(objects):
         if i in mask:
             phrases_rendered.append([])
             continue
-        print("REndering", i, object, object['type'])
+        print("Rendering", i, object, object['type'])
         if object['type'] != 'phrase': 
             ### IMAGE ###
             if object['type'] == 'image':
@@ -147,46 +204,23 @@ def render(objects, mask=[]):
                 for rn, r in enumerate(images[object['path']][0]):
                     for cn, c in enumerate(r):
                         setPixel(ROWS-h+rn, cn+object['startoffset'], list(c), data)
-                phrases_rendered.append([data])
-                continue
+                phrases_rendered[i]=[data]
             ### ANIMATION ###
-            elif object['type'] == 'animation':
-                print("rendering an animation")
-                frames = []
-                for x in range(object['iterations']):
-                    for y in object['frames']:
-                        frm = [[0, 0, 0]]*LENGTH
-                        h = images[y['path']][1][1]
-                        for rn, r in enumerate(images[y['path']][0]):
-                            for cn, c in enumerate(r):
-                                setPixel(ROWS-h+rn, cn+object['start']+object['step']*x+y['offset'], list(c), frm)
-                        frames.append(frm)
-                phrases_rendered.append(frames)
-                continue
-            
-            phrases_rendered.append(None)
+            elif object['type'] == 'animation': 
+                nfrms = object['iterations']*len(object['frames'])
+                phrases_rendered[i] = [None]*nfrms
+                for begin in range(0, nfrms, 50):
+                    pool.apply_async(render_animation, args=(i, object, begin, min(begin+50, nfrms)), callback=apply_results)
             continue
         
         ### PHRASE ###
-        phrases_rendered.append([])         # list of colors
-        for color in object['colors']:
-            phrases_rendered[i].append([])  # list of frames for that color
-            index = object['offset']
-            while True:
-                currFrame = [color['background']]*LENGTH
-                for ci, c in enumerate(object['phrase']):
-                    l = letters_scaled[c] if c in letters_scaled else letters_scaled['uc']
-                    offset = COLS-index+(ci*scale*(WIDTH+1))
-                    if -offset > sWidth or offset > COLS: continue      #go to next letter
-                    for x in range(sHeight):                            #render a letter
-                        for y in range(sWidth):
-                            setPixel(ROWS-sHeight+x, y+offset, color['color'] if l[x][y] else color['background'], currFrame)     #Set a pixel
-                phrases_rendered[i][-1].append(currFrame)
-                index += object['step']
-                if index >= object.get("maxsteps", len(object["phrase"])*scale*(WIDTH+1)+COLS):
-                    break
-        print("PHRASE LENGTH:", len(phrases_rendered[-1][0]))
-    print("finished rendering phrases")
+        pred = (len(object["phrase"])*scale*(WIDTH+1)+COLS-object['offset'])//object['step']
+        phrases_rendered[i]=[[None]*pred]*len(object['colors'])              # preload blank frames
+        for begin in range(0, pred, 50):
+            pool.apply_async(render_phrase, args=(i, object, begin, min(begin+50, pred)), callback=apply_results)
+    pool.close()
+    pool.join()
+    print("finished rendering phrases", time.time() - phrase_begin, getdim(phrases_rendered))
     return phrases_rendered
 
 
