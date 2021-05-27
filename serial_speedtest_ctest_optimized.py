@@ -13,10 +13,8 @@
 import signboard_ctest_multithread as signboard
 
 import serial
-#import RPi.GPIO as GPIO
 import os
 import sys
-import math
 import time
 import hashlib
 import base64
@@ -26,7 +24,6 @@ import multiprocessing
 import re
 import json
 from PIL import Image
-#import lcd_keyboard_manager as lcd_key
 
 arg = " ".join(sys.argv)
 ser = None
@@ -50,7 +47,6 @@ current_file = filename
 recompile = "--recompile" in sys.argv
 
 def setPixel(r, c):
-  #if r==3 and c==0: print(r, c, color)
   if (r >= signboard.ROWS or c >= signboard.COLS or r < 0 or c < 0): return -1
   #c = COLS-c-1
   #r = ROWS-r-1
@@ -82,13 +78,10 @@ def compile_one(index, obj, pcol, images, begin, end):
     begin:  the frame to start with
     end:    the frame th end with
     """
-    global p
 #    start_time = time.time()
 #    print("Starting compile for", index, begin, end)
     pfrms = []
     t = obj['type']
-    #print("First LED value", obj[0][0], pcol.index(obj[0][0]))
-    #print(compile_frame(obj[0][:10], pcol, 2))
     if t=='phrase':
         sWidth = signboard.settings['scale']*signboard.WIDTH
         sHeight = signboard.settings['scale']*signboard.HEIGHT
@@ -111,26 +104,26 @@ def compile_one(index, obj, pcol, images, begin, end):
         data = bytearray([pcol.index((0,0,0))]*signboard.LENGTH)
         for rn, r in enumerate(i[0]):
             for cn, c in enumerate(r):
-                p = setPixel(signboard.ROWS-i[1][1]+r, cn+obj['startoffset'])
+                p = setPixel(signboard.ROWS-i[1][1]+rn, cn+obj['startoffset'])
                 if p == -1: continue
                 data[int(p/2)] = data[int(p/2)] & (0xf0 if p%2 else 0x0f) | (pcol.index(c) << (0 if p%2 else 4))
-        pfrms.append(bytearray([int(obj['displaytime']>>8), obj['displaytime']&255]) + data)
+        pfrms.append(bytearray([int(obj['time']>>8), obj['time']&255]) + data)
     else:
+        anim_frames = len(obj['frames'])
         for x in range(obj['iterations']):
             for iy, y in enumerate(obj['frames']):
+                data = bytearray([pcol.index((0,0,0))]*signboard.LENGTH)
                 if not begin <= (anim_frames*x+iy) < end: continue
-                frm = bytearray([pcol.index((0,0,0))]*LENGTH)
+                frm = bytearray([pcol.index((0,0,0))]*signboard.LENGTH)
                 h = images[y['path']][1][1]
                 for rn, r in enumerate(images[y['path']][0]):
                     for cn, c in enumerate(r):
                         p = setPixel(signboard.ROWS-h+rn, cn+obj['start']+obj['step']*x+y['offset'])
                         if p == -1: continue
-                        frm[int(p/2)] = data[int(p/2)] & (0xf0 if p%2 else 0x0f) | (pcol.index(c) << (0 if p%2 else 4))
+                        data[int(p/2)] = data[int(p/2)] & (0xf0 if p%2 else 0x0f) | (pcol.index(c) << (0 if p%2 else 4))
                 pfrms.append(bytearray([int(y['time']>>8), y['time']&255]) + frm)
 
     return (index, pfrms, t, slice(begin,end))
-#    p[index] = pfrms
-#    print("Finishing compile for", index, begin, len(pfrms), len(pfrms[0]))
 
 
 def apply_results(args):
@@ -173,9 +166,6 @@ def compile_frames(objs, comp_fname, fname):
              
     
 
-
-#    rendered = signboard.render(objs, dont_render)
-#    p_in = list(filter(lambda x: x is not None, rendered))
 
     slen = signboard.ROWS*signboard.COLS
     print("size of the signboard", slen)
@@ -227,13 +217,11 @@ def compile_frames(objs, comp_fname, fname):
 
         pool = multiprocessing.Pool()
         
-#        print("Starting threads for", index, t, nfrms)
         if nfrms <= 50:
             pool.apply_async(compile_one, args=(index, obj, pcol, images, 0, nfrms), callback=apply_results)
         elif nfrms <=200:
             n_proc = 0
             while n_proc < nfrms:
-#                print("starting thread", nproc)
                 pool.apply_async(compile_one, args=(index, obj, pcol, images, n_proc, n_proc+50), callback=apply_results)
                 n_proc += 50
         else:
@@ -243,8 +231,6 @@ def compile_frames(objs, comp_fname, fname):
         pool.close()
         pool.join()
         print("Finished", index)
-#        if t=="phrase": print(index, len(p[index][0]), len(list(filter(lambda x:x is not None, p[index][0]))))
-#        else: print(index, len(p[index]))
     print("All threads terminated in", time.time() - comp_start)
 
         
@@ -289,7 +275,6 @@ if __name__ == "__main__":
 
     threading.Thread(target=web_manager.run).start()
 
-    #lcd_key.reload_callback = reload    
 
     currCycle = 0
 
@@ -340,8 +325,7 @@ if __name__ == "__main__":
         while True:
             if not running: continue
             v = ser.read()
-#            print(v)
-            if v == b"H": 
+            if v == b"H":
                 currObject+=1
                 if currObject == numObjects: 
                     currObject = 0
@@ -352,39 +336,21 @@ if __name__ == "__main__":
                                 else len(p[currObject][0])
                 currFrame = 0                       # just to be safe
                 headerSent = True
-                ser.write(headers[currObject])
+                if objs[currObject]['type'] != 'phrase':
+                    ser.write(headers[currObject])
+                else:
+                    v = headers[currObject]
+                    ser.write(v[currCycle % len(v)])
                 print("\n LOADING", currObject)
-#                print(numFrames, "num frames recvd", ser.readline())
-#                print("colors", ser.readline())
-#                print('time since last header', time.time() - lastHeaderSent)
                 lastHeaderSent = time.time()
-                
-                
-                
-                
+
             if v == b"F": 
-                if headerSent: 
-                    if objs[currObject]['type']!='phrase': ser.write(p[currObject][currFrame])
-                    else:
-                        v = p[currObject]
-                        ser.write(v[currCycle%len(v)][currFrame])
-                        #print("writing color", currCycle%len(v))
+                if headerSent:
+                    ser.write(p[currObject][currFrame])
                     print("\rServing frame "+str(currFrame)+"/"+str(numFrames), end="")
                 else:
                     print("Sending interrupt frame")
                     ser.write(b"\xff\xff\xff\x00")      # interrupt frame
-#                    print("received", ser.readline())
-                #print("curr frame", currFrame)
-                #print("curr object", currObject)
-                #print(p[currObject-1][currFrame])
-                #print("current frame recvd", ser.readline())
-                #print("status", ser.readline())
-#                if currObject == 0 and currFrame == 50: 
-#                    print(len(p[0]))
-#                    print(p[currObject][currCycle%len(p[currObject])][currFrame])
                 currFrame = (currFrame + 1) % numFrames
-            #print(v)
-            #print("-----------------------------------")
     finally:
         ser.close()
-    
