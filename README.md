@@ -8,7 +8,7 @@ Python program. When used as a standalone program, a web interface is
 also available, from which the configuration of the signboard may be
 modified. 
 
-##Configuration files
+## Configuration files
 The configuration files for the signboard follow a format similar to
 that of `structure_example.json`. Each file consists of a settings
 section, which declares the size of the signboard, the alphabet file to
@@ -17,7 +17,7 @@ declares the components of the signboard cycle. Each component, or
 **object**, may represent either a phrase, an image, or an animation.
 An example of each is provided in the example file.
 
-###Settings section
+### Settings section
 | Field | Description |
 |:------|:------------|
 |rows   |The number of rows in the signboard|
@@ -27,7 +27,7 @@ An example of each is provided in the example file.
 |password|When modifying the file from the web interface, the user must enter this password to modify this file. May be set to the empty string.|
 
 
-###Phrase
+### Phrase
 A phrase is a string that is scrolled from right to left across the
 signboard. Multiple sets of foreground and background colors may be
 defined. Each color will then be used for a certain number of full
@@ -46,7 +46,7 @@ For the colors:
 |color  |The foreground color as a `[R, G, B]` array with each value between 0 and 255
 |background|The background color as a `[R, G, B]` array with each value between 0 and 255
 |duration|The number of cycles for which this color will be displayed|
-###Image
+### Image
 
 | Field | Description |
 |:------|:------------|
@@ -54,7 +54,7 @@ For the colors:
 |time   |The number of milliseconds for which the image is displayed. Maximum is 65535 ms (a little over a minute)|
 |startoffset|The number of pixels from the leftmost edge the image will appear/
 
-###Animation
+### Animation
 An animation consists of a series of images that may be played back in
 a cycle. The horizontal offset of a frame, in pixels from the left, is
 `offset+n*step`, where offset is the `offset` parameter of the frame,
@@ -74,12 +74,12 @@ For the frames:
 |time   |The number of milliseconds for which the frame is displayed
 |offset |The offset from the "base" offset|
 
-###Note on images
+### Note on images
 All images must have no more rows than the signboard does and should be
 located in the `images` folder. The total number of colors in any 
 object may be no more than 16.
 
-##Command line usage
+## Command line usage
 ```
 usage: signboard_main.py [-h] [--file FILE] [--baud BAUD] [--port PORT]
                          [--recompile]
@@ -96,7 +96,7 @@ optional arguments:
   --recompile  Recompile all objects every time. Only for debugging
 ```
 
-##Serial buffer
+## Serial buffer
 This program is only designed to drive the signboard indirectly, via a
 serial buffer. The serial buffer may be made from any microcontroller, 
 but a source file `signboard.ino` has been provided for using with an
@@ -108,7 +108,7 @@ however, this hasn't been tested and may result in poor/slower
 performance. See the information at the top of `signboard.ino` for
 detailed information regarding the operation of the serial protocol.
 
-##Web interface
+## Web interface
 When the program is run from the command line, a web interface is
 started on `0.0.0.0`, making it available to the entire network. The
 web interface may be accessed on port 5000. To use it, select the file
@@ -120,7 +120,7 @@ The file `secret_key.py` contains a single variable `FLASK_SECRET_KEY`
 that contains a binary string. At runtime, its value is stored to 
 `app.secret_key`. This file is not included in the repo.
 
-##Use in a Python program
+## Use in a Python program
 To allow more advanced control over the sequence of objects on the
 signboard, you can import `signboard_main` into your program and 
 create an instance of its `SignboardSerial` class. Use the class'
@@ -130,7 +130,7 @@ function may be safely called from a different thread while an object
 is running on the signboard. If this occurs, the `run_object` function
 will return False.
 
-##Note on files
+## Note on files
 Not all files in this repositary are necessary for the operation of
 this signboard. When called from the command line, 
 `serial_speedtest_ctest_multithread.py`, 
