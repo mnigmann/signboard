@@ -2,13 +2,14 @@ from flask import Flask, render_template, request, abort, session, redirect, sen
 from json import loads, load, dumps
 import os
 from werkzeug.utils import secure_filename
+import secret_key
 
 root = ""
 compiling = False
 
 app = Flask(__name__)
 
-app.secret_key = b'+\x07\x1a\xe8\xc8\x14;\x13\x8fl(\x04\x7f\xe0P}\xb7\xbb9y'
+app.secret_key = secret_key.FLASK_SECRET_KEY
 
 reload = lambda: None
 
