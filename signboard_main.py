@@ -35,7 +35,7 @@ class SignboardLoader:
     def load(self, src, comp_file=None, root=None):
         if root is None: root = self.root
         self.file = os.path.join(root, src)
-        self.comp_file = comp_file or self.file.replace(".json", ".compiled")
+        self.comp_file = comp_file or os.path.splitext(self.file)[0] + ".compiled"
         with open(self.file) as struc:
             struc = json.load(struc)
             with open(os.path.join(root, struc['settings']['alphabet'])) as l:
@@ -305,6 +305,13 @@ class SignboardSerial(SignboardLoader):
         self.headerSent = False
 
     def load(self, src, comp_file=None, root=None):
+        """
+        Load a configuration file and compile its contents, if necessary.
+        :param src: The filename of the config file
+        :param comp_file: The destination for the compiled frames. Defaults to the source but with ".compiled" as an extension
+        :param root: Defaults to the current working directory
+        :return:
+        """
         self.running = False
         time.sleep(0.2)         # after disabling, wait for program to reach "breakpoint"
         super().load(src, comp_file, root)
@@ -312,6 +319,12 @@ class SignboardSerial(SignboardLoader):
         self.running = True
 
     def run_object(self, index, cycle=0):
+        """
+        Display one object on the signboard
+        :param index: The index of the object to be run
+        :param cycle: The current cycle. This is used for selecting the colors of phrases
+        :return: None
+        """
         currFrame = 0
         numFrames = 0
         while True:
@@ -352,7 +365,7 @@ class SignboardSerial(SignboardLoader):
 
 if __name__ == "__main__":
     parse = argparse.ArgumentParser(description="Load signboard data from file and output to signboard via serial buffer")
-    parse.add_argument("--file", dest="file", help="File contianing signboard objects")
+    parse.add_argument("--file", dest="file", help="File containing signboard objects")
     parse.add_argument("--baud", dest="baud", type=int, default=4000000, help="Baud rate for serial connection. Default is 4000000")
     parse.add_argument("--port", dest="port", help="Serial port of the serial buffer")
     parse.add_argument("--recompile", dest="force", action="store_const", const=True, help="Recompile all objects every time. Only for debugging")

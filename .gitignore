@@ -2,4 +2,7 @@
 /.idea
 /__pycache__
 *.compiled
+structure_science_center.json
+structure_science_center_small.json
+secret_key.py
 
