@@ -24,6 +24,72 @@ import json
 from PIL import Image
 
 
+def compile_one(index, obj, pcol, images, begin, end, settings, letters_scaled):
+    """
+    Compiles a certain range of frames.
+
+    index:  the index of the current object
+    obj:    the current object
+    pcol:   the colors used in the object
+    images: the image data (if needed) for this object
+    begin:  the frame to start with
+    end:    the frame th end with
+    """
+    with open("/tmp/signboard.log", "a") as f: f.write("compiling...\n")
+    try:
+        ROWS = settings['rows']
+        COLS = settings['cols']
+        def setPixel(r, c):
+            if r >= ROWS or c >= COLS or r < 0 or c < 0: return -1
+            i = int((2 * COLS) - 2 + r + (2 * (COLS - 1) * ((r - 1) // 2.0)) + (c * (1 - 2 * (r % 2))))
+            if i >= settings['length']: return -1
+            return i
+        pfrms = []
+        t = obj['type']
+        if t=='phrase':
+          sWidth = settings['scale']*settings['width']
+          sHeight = settings['scale']*settings['height']
+          for frm_idx in range(begin, end):
+            data = bytearray([0x22]*settings['rows']*settings['cols'])
+            for ci, c in enumerate(obj['phrase']):
+                l = letters_scaled.get(c, letters_scaled['uc'])
+                offset = settings['cols']-frm_idx+(ci*settings['scale']*(settings['width']+1))
+                if -offset > sWidth or offset > settings['cols']: continue
+                for x in range(sHeight):
+                    for y in range(sWidth):
+                        p = setPixel(settings['rows'] - sHeight + x, y + offset)
+                        if p == -1: continue
+                        data[int(p/2)] = data[int(p/2)] & (0xf0 if p%2 else 0x0f) | ((1 if l[x][y] else 2) << (0 if p%2 else 4))
+            pfrms.append(bytearray([int(obj['speed']>>8), obj['speed']&255]) + data)
+        elif t=='image':
+            i = images[obj['path']]
+            data = bytearray([pcol.index((0,0,0))]*settings['length'])
+            for rn, r in enumerate(i[0]):
+                for cn, c in enumerate(r):
+                    p = setPixel(ROWS-i[1][1]+rn, cn+obj['startoffset'])
+                    if p == -1: continue
+                    data[int(p/2)] = data[int(p/2)] & (0xf0 if p%2 else 0x0f) | (pcol.index(c) << (0 if p%2 else 4))
+            pfrms.append(bytearray([int(obj['time']>>8), obj['time']&255]) + data)
+        else:
+            for x in range(obj['iterations']):
+                for iy, y in enumerate(obj['frames']):
+                    if not begin <= (len(obj['frames'])*x+iy) < end: continue
+                    data = bytearray([pcol.index((0,0,0))]*int((settings['length']+1)/2))
+                    h = images[y['path']][1][1]
+                    for rn, r in enumerate(images[y['path']][0]):
+                        for cn, c in enumerate(r):
+                            p = setPixel(ROWS-h+rn, cn+obj['start']+obj['step']*x+y['offset'])
+                            if p == -1: continue
+                            data[int(p/2)] = data[int(p/2)] & (0xf0 if p%2 else 0x0f) | (pcol.index(c) << (0 if p%2 else 4))
+                    pfrms.append(bytearray([int(y['time']>>8), y['time']&255]) + data)
+
+        return (index, pfrms, t, begin, end)
+    except Exception as e:
+        with open("/tmp/signboard.log", "a") as f: 
+            f.write(str(e))
+            f.write("\n")
+
+
 class SignboardLoader:
     def __init__(self):
         self.root = re.search("^(.+)/.+$", os.path.abspath(__file__)).group(1)
@@ -32,7 +98,7 @@ class SignboardLoader:
         self.p = None
         self.headers = None
 
-    def load(self, src, comp_file=None, root=None):
+    def load(self, src, comp_file=None, root=None, force=False):
         if root is None: root = self.root
         self.file = os.path.join(root, src)
         self.comp_file = comp_file or os.path.splitext(self.file)[0] + ".compiled"
@@ -79,7 +145,7 @@ class SignboardLoader:
 
                 # Render the frames in advance
                 # phrases_rendered = render(objects)
-        self.compile_frames()
+        self.compile_frames(force)
 
 
     def color2bytes(self, x):
@@ -92,69 +158,6 @@ class SignboardLoader:
     def compile_frame(self, frame, col, dtime):
         return bytearray([int(dtime>>8), dtime&255]) + b"".join([ bytearray([(col.index(frame[x])<<4) + (0 if len(frame)==x+1 else col.index(frame[x+1]))]) for x in range(0, len(frame), 2) ])
 
-    @staticmethod
-    def compile_one(index, obj, pcol, images, begin, end, settings, letters_scaled):
-        """
-        Compiles a certain range of frames.
-
-        index:  the index of the current object
-        obj:    the current object
-        pcol:   the colors used in the object
-        images: the image data (if needed) for this object
-        begin:  the frame to start with
-        end:    the frame th end with
-        """
-        ROWS = settings['rows']
-        COLS = settings['cols']
-        def setPixel(r, c):
-            if r >= ROWS or c >= COLS or r < 0 or c < 0: return -1
-            i = int((2 * COLS) - 2 + r + (2 * (COLS - 1) * ((r - 1) // 2.0)) + (c * (1 - 2 * (r % 2))))
-            if i >= settings['length']: return -1
-            return i
-        pfrms = []
-        t = obj['type']
-        if t=='phrase':
-            sWidth = settings['scale']*settings['width']
-            sHeight = settings['scale']*settings['height']
-            try:
-              for frm_idx in range(begin, end):
-                data = bytearray([0x22]*settings['rows']*settings['cols'])
-                for ci, c in enumerate(obj['phrase']):
-                    l = letters_scaled.get(c, letters_scaled['uc'])
-                    offset = settings['cols']-frm_idx+(ci*settings['scale']*(settings['width']+1))
-                    if -offset > sWidth or offset > settings['cols']: continue
-                    for x in range(sHeight):
-                        for y in range(sWidth):
-                            p = setPixel(settings['rows'] - sHeight + x, y + offset)
-                            if p == -1: continue
-                            data[int(p/2)] = data[int(p/2)] & (0xf0 if p%2 else 0x0f) | ((1 if l[x][y] else 2) << (0 if p%2 else 4))
-                pfrms.append(bytearray([int(obj['speed']>>8), obj['speed']&255]) + data)
-            except Exception as e: print(e)
-        elif t=='image':
-            i = images[obj['path']]
-            data = bytearray([pcol.index((0,0,0))]*settings['length'])
-            for rn, r in enumerate(i[0]):
-                for cn, c in enumerate(r):
-                    p = setPixel(ROWS-i[1][1]+rn, cn+obj['startoffset'])
-                    if p == -1: continue
-                    data[int(p/2)] = data[int(p/2)] & (0xf0 if p%2 else 0x0f) | (pcol.index(c) << (0 if p%2 else 4))
-            pfrms.append(bytearray([int(obj['time']>>8), obj['time']&255]) + data)
-        else:
-            for x in range(obj['iterations']):
-                for iy, y in enumerate(obj['frames']):
-                    if not begin <= (len(obj['frames'])*x+iy) < end: continue
-                    data = bytearray([pcol.index((0,0,0))]*int((settings['length']+1)/2))
-                    h = images[y['path']][1][1]
-                    for rn, r in enumerate(images[y['path']][0]):
-                        for cn, c in enumerate(r):
-                            p = setPixel(ROWS-h+rn, cn+obj['start']+obj['step']*x+y['offset'])
-                            if p == -1: continue
-                            data[int(p/2)] = data[int(p/2)] & (0xf0 if p%2 else 0x0f) | (pcol.index(c) << (0 if p%2 else 4))
-                    pfrms.append(bytearray([int(y['time']>>8), y['time']&255]) + data)
-
-        return (index, pfrms, t, begin, end)
-    #    p[index] = pfrms
-    #    print("Finishing compile for", index, begin, len(pfrms), len(pfrms[0]))
 
     def apply_results(self, args):
         index, pfrms, t, begin, end = args
@@ -237,7 +240,6 @@ class SignboardLoader:
             elif t == "animation": nfrms = obj['iterations']*len(obj['frames'])
             else: nfrms = 1
 
-
             phead = bytearray([int(nfrms>>8), nfrms&255, int(slen>>8), slen&255])
             if t != "phrase": self.headers[index] = phead + b"".join(bytearray(col) for col in pcol[1:])
             else: self.headers[index] = [phead + bytearray(c["color"]) + bytearray(c["background"]) for c in obj['colors']]
@@ -249,16 +251,16 @@ class SignboardLoader:
             pool = multiprocessing.Pool()
 
             if nfrms <= 50:
-                pool.apply_async(self.compile_one, args=(index, obj, pcol, images, 0, nfrms, settings, self.letters_scaled), callback=self.apply_results)
+                pool.apply_async(compile_one, args=(index, obj, pcol, images, 0, nfrms, settings, self.letters_scaled), callback=self.apply_results)
             elif nfrms <=200:
                 n_proc = 0
                 while n_proc < nfrms:
-                    pool.apply_async(self.compile_one, args=(index, obj, pcol, images, n_proc, min(nfrms, n_proc+50), settings, self.letters_scaled), callback=self.apply_results)
+                    pool.apply_async(compile_one, args=(index, obj, pcol, images, n_proc, min(nfrms, n_proc+50), settings, self.letters_scaled), callback=self.apply_results)
                     n_proc += 50
             else:
                 nper = nfrms // 4 + 1
                 for x in range(4):
-                    pool.apply_async(self.compile_one, args=(index, obj, pcol, images, nper*x, min(nfrms, nper*x+nper), settings, self.letters_scaled), callback=self.apply_results)
+                    pool.apply_async(compile_one, args=(index, obj, pcol, images, nper*x, min(nfrms, nper*x+nper), settings, self.letters_scaled), callback=self.apply_results).get()
             pool.close()
             pool.join()
             print("Finished", index)
@@ -304,7 +306,7 @@ class SignboardSerial(SignboardLoader):
         self.serial.write(b"\xff\xff\xff"+bytearray([data]))
         self.headerSent = False
 
-    def load(self, src, comp_file=None, root=None):
+    def load(self, src, comp_file=None, root=None, force=False):
         """
         Load a configuration file and compile its contents, if necessary.
         :param src: The filename of the config file
@@ -314,7 +316,7 @@ class SignboardSerial(SignboardLoader):
         """
         self.running = False
         time.sleep(0.2)         # after disabling, wait for program to reach "breakpoint"
-        super().load(src, comp_file, root)
+        super().load(src, comp_file, root, force)
         self.headerSent = False
         self.running = True
 
@@ -373,7 +375,7 @@ if __name__ == "__main__":
     print(args.file, args.port, args.force)
 
     signboard = SignboardSerial(args.port, args.baud)
-    signboard.load(args.file)
+    signboard.load(args.file, force=args.force)
     print("connecting...")
     while not signboard.init_ser():
         time.sleep(1)
