@@ -330,11 +330,10 @@ class SignboardSerial(SignboardLoader):
         currFrame = 0
         numFrames = 0
         while True:
+            v = self.serial.read()
             if not self.running:
                 return False
-            v = self.serial.read()
             if v == b"H":
-
                 numFrames = len(self.p[index])
                 currFrame = 0  # just to be safe
                 self.headerSent = True
@@ -391,6 +390,7 @@ if __name__ == "__main__":
         while True:
             for x in range(len(signboard.objects)):
                 if not signboard.run_object(x):
+                    print("Cycle has been interrupted externally")
                     break
             while not signboard.running: pass
     finally:
