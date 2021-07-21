@@ -53,7 +53,7 @@ def compile_one(index, obj, pcol, images, begin, end, settings, letters_scaled):
             data = bytearray([0x22]*settings['rows']*settings['cols'])
             for ci, c in enumerate(obj['phrase']):
                 l = letters_scaled.get(c, letters_scaled['uc'])
-                offset = settings['cols']-frm_idx+(ci*settings['scale']*(settings['width']+1))
+                offset = settings['cols']-frm_idx+(ci*settings['scale']*(settings['width']+1)) - obj['offset']
                 if -offset > sWidth or offset > settings['cols']: continue
                 for x in range(sHeight):
                     for y in range(sWidth):
@@ -236,7 +236,7 @@ class SignboardLoader:
             else: pcol = [-1] + [c for pattern in obj['colors'] for c in [pattern["color"], pattern["background"]]]
 
             # "nfrms": contains the exact number of frames in the final compilation
-            if t == "phrase": nfrms = self.COLS + self.settings['scale']*(self.WIDTH+1)*len(obj['phrase'])
+            if t == "phrase": nfrms = self.COLS + self.settings['scale']*(self.WIDTH+1)*len(obj['phrase']) - obj['offset']
             elif t == "animation": nfrms = obj['iterations']*len(obj['frames'])
             else: nfrms = 1
 
