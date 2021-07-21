@@ -19,16 +19,18 @@ def main():
     if file:
         pw = request.form.get("password", "")
         print(file, pw)
-        with open(file) as f:
-            cpw = load(f)['settings'].get('password', None)
-            if cpw is None or cpw == pw:
-                if 'authorized' not in session: session['authorized'] = "[]"
-                auth = loads(session['authorized'])
-                auth.append(file)
-                session['authorized'] = dumps(auth)
-                return redirect("/openfile?fname="+file)
+        try:
+            with open(os.path.join("structure", file)) as f:
+                cpw = load(f)['settings'].get('password', None)
+                if cpw is None or cpw == pw:
+                    if 'authorized' not in session: session['authorized'] = "[]"
+                    auth = loads(session['authorized'])
+                    auth.append(file)
+                    session['authorized'] = dumps(auth)
+                    return redirect("/openfile?fname="+file)
+        except Exception as e: print(e)
     
-    files = list(filter(lambda f: f.startswith("structure") and f.endswith(".json"), os.listdir(root)))
+    files = [x for x in os.listdir(os.path.join(root, "structure")) if x.endswith(".json")]
 
     return render_template("index.html", files=files)
     return """
@@ -48,7 +50,8 @@ def openfile():
     if not fname: return redirect("/")
     if fname not in loads(session['authorized']): return redirect("/")
 
-    if fname.startswith("structure"):
+    if fname.endswith(".json"):
+        fname = os.path.join("structure", fname)
         if request.form:
             use_reload = request.form.get("reload", "0")=="1"
             print("FNAME IS", fname)
@@ -93,7 +96,8 @@ def get_image(file):
 @app.route("/getfile")
 def struc():
     fname = request.args.get("fname", "")
-    if fname.startswith("structure"):
+    if fname.endswith(".json"):
+        fname = os.path.join("structure", fname)
         try:
             with open(fname) as f:
                 return f.read()
