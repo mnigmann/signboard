@@ -183,9 +183,8 @@ class SignboardLoader:
                         this = self.objects[obj_index]
                         if h_n.hexdigest() == obj['hash'].strip():
                             print("version found with matching hash for object", obj_index)
-                            self.headers[obj_index] = (eval(base64.b64decode(obj['header'].encode()).decode()))
-                            self.p[obj_index] = (eval(base64.b64decode(obj['frames'].encode()).decode()))
-                            print(obj['header'], base64.b64decode(obj['header'].encode()).decode())
+                            self.headers[obj_index] = [base64.b64decode(x.encode()) for x in obj['header']] if isinstance(obj['header'], list) else base64.b64decode(obj['header'].encode())
+                            self.p[obj_index] = [base64.b64decode(x.encode()) for x in obj['frames']]
                         else:
                             print("hashes do not match for {}: old={} and new={}".format(obj_index, obj['hash'].strip(), h_n.hexdigest()))
 
@@ -276,8 +275,10 @@ class SignboardLoader:
 
                 if i != 0: f.write(",\n")
                 f.write('    {\n        "hash": "%s",\n' % (object_hash.hexdigest()))
-                f.write('        "header": "{}",\n'.format(base64.b64encode(str(self.headers[i]).encode()).decode()))
-                f.write('        "frames": "{}"\n'.format(base64.b64encode(str(self.p[i]).encode()).decode()))
+                header_comp = json.dumps([base64.b64encode(x).decode() for x in self.headers[i]]) if isinstance(self.headers[i], list) else '"'+base64.b64encode(self.headers[i]).decode()+'"'
+                f.write('        "header": {},\n'.format(header_comp))
+                frames_comp = json.dumps([base64.b64encode(x).decode() for x in self.p[i]])
+                f.write('        "frames": {}\n'.format(frames_comp))
                 f.write("    }")
             f.write("\n]\n")
 
