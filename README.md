@@ -38,7 +38,8 @@ cycles before the next one is selected
 |phrase |The phrase to be displayed|
 |step   |The number of pixel the phrase moves between frames|
 |speed  |The number of milliseconds between frames|
-|offset |The number of pixels from the rightmost edge the phrase will appear in the first frame. **Currently not supported**|
+|offset |The number of pixels from the rightmost edge the phrase will appear in the first frame|
+
 For the colors:
 
 | Field | Description |
@@ -66,6 +67,7 @@ current cycle of the animation
 |start  |The position, from pixels from the left, of the first frame of the animation|
 |step   |The step between complete cycles of the animation|
 |iterations|The number of complete cycles of the animation|
+
 For the frames:
 
 | Field | Description |
