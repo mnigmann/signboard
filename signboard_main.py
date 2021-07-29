@@ -332,7 +332,7 @@ class SignboardSerial(SignboardLoader):
         numFrames = 0
         while True:
             v = self.serial.read()
-            if not self.running:
+            if not self.running or index >= len(self.p):
                 return False
             if v == b"H":
                 numFrames = len(self.p[index])
@@ -385,6 +385,7 @@ if __name__ == "__main__":
 
     web_manager.reload = signboard.load
     web_manager.root = signboard.root
+    web_manager.signboard = signboard
     threading.Thread(target=web_manager.run).start()
 
     try:

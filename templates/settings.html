@@ -25,9 +25,38 @@
   button {
     display: inline;
   }
+  
+  #modal-overlay {
+    z-index:1;
+    width:100%;
+    height:100%;
+    top:0px;
+    left:0px;
+    background-color:rgba(0,0,0,0.4);
+    position:fixed;
+  }
+  #modal-container {
+    z-index:2;
+    position:absolute;
+    width: 300px;
+    left: calc(50% - 150px);
+    height: 150px;
+    top: calc(50% - 75px);
+    background-color: #fff;
+  }
 </style>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
 <script src="jscolor.js"></script>
+
+<div id="modal-overlay" style="display:none;">
+  <div id="modal-container">
+    The file <span id="currfile"></span> is currently running, please enter its password:<br/>
+    <input type="password" id="entered_password"><br/>
+    <button type="button" onclick="password_entered();">Done</button>
+    <button type="button" onclick="$('#modal-overlay').css('display', 'none');">Cancel</button>
+  </div>
+</div>
+
 <script>
   p = x=>parseInt(x);
   n = x=>x;
@@ -61,6 +90,9 @@
   function update() {
       $("#output tr:gt(1)").remove()
       var json = window.json;
+      $("#rows").val(json.settings.rows);
+      $("#cols").val(json.settings.cols);
+      $("#scale").val(json.settings.scale);
       $.each(json.objects, function(i, x) {
         var tr = $("<tr></tr>");
         $("#output").append(tr);
@@ -276,9 +308,43 @@
     loadjson();
     update();
   }
+
+  function load_setting(name) {
+    window.json.settings[name] = parseInt(document.getElementById(name).value);
+    loadjson();
+  }
+
+  function prompt_password() {
+    $("#reload_signboard").val(1);
+    $.get("/current", function(resp) {
+      if (resp != window.location.href.split("fname=")[1]) {
+        $("#modal-overlay").css("display", "block");
+        $("#currfile").html(resp);
+      } else $("form").submit();
+    });
+  }
+  
+  function password_entered() {
+    $("#oldpass").val($("#entered_passowrd").val());
+    $("form").submit();
+  }
 </script>
 
 <a href="/images">Edit images</a>
+<table id="settings">
+  <tr>
+    <th>Rows</th>
+    <td><textarea id="rows" oninput="load_setting('rows');"></textarea></td>
+  </tr>
+  <tr>
+    <th>Columns</th>
+    <td><textarea id="cols" oninput="load_setting('cols');"></textarea></td>
+  </tr>
+  <tr>
+    <th>Scale</th>
+    <td><textarea id="scale" oninput="load_setting('scale');"></textarea></td>
+  </tr>
+</table>
 
 <table id="output">
   <tr>
@@ -327,5 +393,6 @@
     <input type=hidden name=json id=json>
     <input type=hidden name=reload value=0 id="reload_signboard">
     <input type=submit value=Save>
-    <input type=submit value="Save and reload" onclick="document.getElementById('reload_signboard').value=1;">
+    <button type=button onclick="prompt_password();">Save and reload</button>
+    <input type=hidden name=oldpass id=oldpass>
 </form>
