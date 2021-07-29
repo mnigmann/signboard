@@ -5,6 +5,7 @@ from werkzeug.utils import secure_filename
 import secret_key
 
 root = ""
+signboard = None
 compiling = False
 
 app = Flask(__name__)
@@ -20,7 +21,7 @@ def main():
         pw = request.form.get("password", "")
         print(file, pw)
         try:
-            with open(os.path.join("structure", file)) as f:
+            with open(os.path.join(root, "structure", file)) as f:
                 cpw = load(f)['settings'].get('password', None)
                 if cpw is None or cpw == pw:
                     if 'authorized' not in session: session['authorized'] = "[]"
@@ -51,7 +52,7 @@ def openfile():
     if fname not in loads(session['authorized']): return redirect("/")
 
     if fname.endswith(".json"):
-        fname = os.path.join("structure", fname)
+        fname = os.path.join(root, "structure", fname)
         if request.form:
             use_reload = request.form.get("reload", "0")=="1"
             print("FNAME IS", fname)
@@ -97,13 +98,18 @@ def get_image(file):
 def struc():
     fname = request.args.get("fname", "")
     if fname.endswith(".json"):
-        fname = os.path.join("structure", fname)
+        fname = os.path.join(root, "structure", fname)
         try:
             with open(fname) as f:
                 return f.read()
         except FileNotFoundError:
             return abort(404)
     else: return abort(403)
+
+@app.route("/current")
+def get_current():
+    global signboard
+    return signboard.file[len(signboard.root):].strip("/")[10:]
 
 @app.route("/reload")
 @app.route("/reload/<url>")
@@ -118,8 +124,7 @@ def jscolor():
 
 @app.route("/jquery.js")
 def jquery():
-    return render_template("jquery.js")
-        
+    return render_template("jquery.js")        
 
 def run():
     app.run(host="0.0.0.0", port=5000)
