@@ -9,6 +9,7 @@
 #  s = scale
 #  w = width of a character
 #  l = length of the phrase
+import struct
 
 import serial
 import os
@@ -22,6 +23,11 @@ import multiprocessing
 import re
 import json
 from PIL import Image
+
+import numpy
+import cv2
+import sb_object
+import fcntl
 
 
 def compile_one(index, obj, pcol, images, begin, end, settings, letters_scaled):
@@ -50,7 +56,7 @@ def compile_one(index, obj, pcol, images, begin, end, settings, letters_scaled):
           sWidth = settings['scale']*settings['width']
           sHeight = settings['scale']*settings['height']
           for frm_idx in range(begin, end):
-            data = bytearray([0x22]*settings['rows']*settings['cols'])
+            data = bytearray([0x22]*(settings['rows']*settings['cols']//2))
             for ci, c in enumerate(obj['phrase']):
                 l = letters_scaled.get(c, letters_scaled['uc'])
                 offset = settings['cols']-frm_idx+(ci*settings['scale']*(settings['width']+1)) - obj['offset']
@@ -63,7 +69,7 @@ def compile_one(index, obj, pcol, images, begin, end, settings, letters_scaled):
             pfrms.append(bytearray([int(obj['speed']>>8), obj['speed']&255]) + data)
         elif t=='image':
             i = images[obj['path']]
-            data = bytearray([pcol.index((0,0,0))]*settings['length'])
+            data = bytearray([pcol.index((0,0,0))]*(settings['length']//2))
             for rn, r in enumerate(i[0]):
                 for cn, c in enumerate(r):
                     p = setPixel(ROWS-i[1][1]+rn, cn+obj['startoffset'])
@@ -97,6 +103,10 @@ class SignboardLoader:
         self.comp_file = None
         self.p = None
         self.headers = None
+        self.objects = []
+        self.sb_objects = []
+        self.letters = {}
+        self.WIDTH = self.HEIGHT = self.ROWS = self.COLS = self.scale = self.LENGTH = 0
 
     def load(self, src, comp_file=None, root=None, force=False):
         if root is None: root = self.root
@@ -125,8 +135,6 @@ class SignboardLoader:
                 else:
                     self.LENGTH = self.COLS * max(self.settings['scale'] * self.HEIGHT,
                                                   images[max(images, key=lambda x: images[x][1][1])][1][1])
-                TEXTFILLLENGTH = self.COLS * self.settings['scale'] * self.HEIGHT
-                # print(neopixel, dir(neopixel))
 
                 self.letters_scaled = {letter:
                     # for each letter
@@ -139,6 +147,18 @@ class SignboardLoader:
                 self.scale = self.settings['scale']
                 self.sHeight = self.HEIGHT * self.scale
                 self.sWidth = self.WIDTH * self.scale
+
+                self.sb_objects = []
+                for x in self.objects:
+                    if x["type"] == "phrase":
+                        self.sb_objects.append(sb_object.PhraseObject(x, self, self.letters_scaled))
+                        self.sb_objects[-1].prepare(1)
+                    elif x["type"] == "image":
+                        self.sb_objects.append(sb_object.ImageObject(x, self))
+                        self.sb_objects[-1].prepare(0)
+                    elif x["type"] == "animation":
+                        self.sb_objects.append(sb_object.AnimationObject(x, self))
+                        self.sb_objects[-1].prepare(0)
 
                 # print(images)
                 print("Successfully loaded!")
@@ -294,7 +314,7 @@ class SignboardSerial(SignboardLoader):
         self.headerSent = False
         super().__init__()
 
-    def init_ser(self):
+    def init(self):
         try:
             self.serial = serial.Serial(self.port, self.baud)
             return True
@@ -365,6 +385,95 @@ class SignboardSerial(SignboardLoader):
         self.serial.close()
 
 
+class SignboardCV2(SignboardLoader):
+    def __init__(self):
+        self.running = True
+        self.headerSent = False
+        super().__init__()
+
+    def load(self, src, comp_file=None, root=None, force=False):
+        """
+        Load a configuration file and compile its contents, if necessary.
+        :param src: The filename of the config file
+        :param comp_file: The destination for the compiled frames. Defaults to the source but with ".compiled" as an extension
+        :param root: Defaults to the current working directory
+        :return:
+        """
+        self.running = False
+        time.sleep(0.2)         # after disabling, wait for program to reach "breakpoint"
+        super().load(src, comp_file, root, force)
+        self.running = True
+
+    def run_object(self, index, cycle=0):
+        """
+        Display one object on the signboard
+        :param index: The index of the object to be run
+        :param cycle: The current cycle. This is used for selecting the colors of phrases
+        :return: None
+        """
+        for i in range(self.sb_objects[index].get_n_frames(cycle)):
+            img, t = self.sb_objects[index].get_frame(i, cycle)
+            cv2.imshow("img", cv2.resize(numpy.uint8(img), (self.COLS*10, self.ROWS*10), interpolation=cv2.INTER_NEAREST)[:, :, ::-1])
+            cv2.waitKey(t)
+        return True
+
+    def close(self):
+        pass
+
+
+class SignboardNative(SignboardLoader):
+    def __init__(self, file):
+        self.running = True
+        self.headerSent = False
+        super().__init__()
+        self.fn = file
+        self.file = None
+
+    def init(self):
+        self.file = open(self.fn)
+        fcntl.ioctl(self.file, 0, struct.pack("3I", 0x0000000B, 0x00000001, self.LENGTH))
+
+    def load(self, src, comp_file=None, root=None, force=False):
+        """
+        Load a configuration file and compile its contents, if necessary.
+        :param src: The filename of the config file
+        :param comp_file: The destination for the compiled frames. Defaults to the source but with ".compiled" as an extension
+        :param root: Defaults to the current working directory
+        :return:
+        """
+        self.running = False
+        time.sleep(0.2)         # after disabling, wait for program to reach "breakpoint"
+        super().load(src, comp_file, root, force)
+        self.running = True
+
+    def run_object(self, index, cycle=0):
+        """
+        Display one object on the signboard
+        :param index: The index of the object to be run
+        :param cycle: The current cycle. This is used for selecting the colors of phrases
+        :return: None
+        """
+        currFrame = 0
+        numFrames = 0
+        for i in range(self.sb_objects[index].get_n_frames(cycle)):
+            t0 = time.time()
+            img, t = self.sb_objects[index].get_frame(i, cycle)
+            t1 = time.time()
+            data = [0]*3*self.LENGTH
+            for rn, r in enumerate(img):
+                for cn, c in enumerate(r):
+                    e = 3*(rn*self.COLS + (self.COLS-1-cn if rn%2 else cn))
+                    #data[e:e+3] = c
+            data = bytearray(data)
+            t2 = time.time()
+            print(t1-t0, t2-t1, t2-t0)
+            print(data)
+        return True
+
+    def close(self):
+        self.file.close()
+
+
 if __name__ == "__main__":
     parse = argparse.ArgumentParser(description="Load signboard data from file and output to signboard via serial buffer")
     parse.add_argument("--file", dest="file", help="File containing signboard objects")
@@ -377,7 +486,7 @@ if __name__ == "__main__":
     signboard = SignboardSerial(args.port, args.baud)
     signboard.load(args.file, force=args.force)
     print("connecting...")
-    while not signboard.init_ser():
+    while not signboard.init():
         time.sleep(1)
         print(".", end="")
     print("number of objects is {}".format(len(signboard.objects)))
