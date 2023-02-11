@@ -93,7 +93,7 @@ class ImageObject(SBObject):
 
     def prepare(self, level):
         if level >= 0:
-            self.img, self.size = self.load_img(Image.open(os.path.join("images", self["path"])))
+            self.img, self.size = self.load_img(Image.open(os.path.join(self.sb.root, os.path.join("images", self["path"]))))
 
     def get_n_frames(self, cycle=0):
         return 1
@@ -123,7 +123,7 @@ class AnimationObject(SBObject):
             self.img = []
             self.size = []
             for x in self["frames"]:
-                i, s = self.load_img(Image.open(os.path.join("images", x["path"])))
+                i, s = self.load_img(Image.open(os.path.join(self.sb.root, os.path.join("images", x["path"]))))
                 self.img.append(i)
                 self.size.append(s)
 

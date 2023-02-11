@@ -24,8 +24,8 @@ import re
 import json
 from PIL import Image
 
-import numpy
-import cv2
+#import numpy
+#import cv2
 import sb_object
 import fcntl
 
@@ -384,7 +384,7 @@ class SignboardSerial(SignboardLoader):
     def close(self):
         self.serial.close()
 
-
+'''
 class SignboardCV2(SignboardLoader):
     def __init__(self):
         self.running = True
@@ -419,7 +419,7 @@ class SignboardCV2(SignboardLoader):
 
     def close(self):
         pass
-
+'''
 
 class SignboardNative(SignboardLoader):
     def __init__(self, file):
@@ -427,11 +427,13 @@ class SignboardNative(SignboardLoader):
         self.headerSent = False
         super().__init__()
         self.fn = file
-        self.file = None
+        self.chardev = None
 
     def init(self):
-        self.file = open(self.fn)
-        fcntl.ioctl(self.file, 0, struct.pack("3I", 0x0000000B, 0x00000001, self.LENGTH))
+        self.chardev = open(self.fn, "wb", 0)
+        print("ioctl", fcntl.ioctl(self.chardev, 0xC004EE00, struct.pack("3I", 0x0000000B, 0x00000050, 160)))
+        fcntl.ioctl(self.chardev, 0xC004EE01, struct.pack("2B", 0x10, 0));
+        fcntl.ioctl(self.chardev, 0xC004EE01, struct.pack("2B", 0x40, 1));
 
     def load(self, src, comp_file=None, root=None, force=False):
         """
@@ -455,23 +457,24 @@ class SignboardNative(SignboardLoader):
         """
         currFrame = 0
         numFrames = 0
+        last_time = time.time()
         for i in range(self.sb_objects[index].get_n_frames(cycle)):
-            t0 = time.time()
+            if not self.running: return False
             img, t = self.sb_objects[index].get_frame(i, cycle)
-            t1 = time.time()
             data = [0]*3*self.LENGTH
             for rn, r in enumerate(img):
                 for cn, c in enumerate(r):
                     e = 3*(rn*self.COLS + (self.COLS-1-cn if rn%2 else cn))
-                    #data[e:e+3] = c
+                    data[e:e+3] = c
             data = bytearray(data)
-            t2 = time.time()
-            print(t1-t0, t2-t1, t2-t0)
-            print(data)
+            self.chardev.write(data)
+            t = max(t, 10)
+            while (time.time() - last_time <= t/1000): pass
+            last_time = time.time()
         return True
 
     def close(self):
-        self.file.close()
+        self.chardev.close()
 
 
 if __name__ == "__main__":
