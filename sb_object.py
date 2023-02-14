@@ -17,6 +17,9 @@ class SBObject:
     def prepare(self, level):
         pass
 
+    def get_header(self, cycle=0):
+        pass
+
     def __getitem__(self, item):
         return self.obj[item]
 
@@ -26,6 +29,8 @@ class PhraseObject(SBObject):
         self.alphabet = alphabet
         self.color_cumsum = []
         self.full = []
+        self.compiled = []
+        self.headers = []
         self.level = 0
         super().__init__(obj, sb)
 
@@ -37,7 +42,9 @@ class PhraseObject(SBObject):
             for c in self["colors"]:
                 i += c["duration"]
                 self.color_cumsum.append(i)
-        if level == 1:
+        if level >= 1:
+            # Make one big image containing the whole phrase
+            # A subset of this image will be displayed for every frame
             sWidth = self.sb.scale*(self.sb.WIDTH+1)
             self.full = [[0]*sWidth*len(self["phrase"]) for i in range(self.sb.ROWS)]
             for ci, c in enumerate(self["phrase"]):
@@ -45,6 +52,23 @@ class PhraseObject(SBObject):
                 for rn, r in enumerate(l):
                     #print(rn, ci*self.sb.sWidth, (ci+1)*self.sb.sWidth, len(self.full[0]))
                     self.full[rn][ci*sWidth:(ci+1)*sWidth] = r
+        if level == 2:
+            # Compile the object into a sequence of binary frames
+            fw = len(self.full[0])
+            nfrms = self.get_n_frames(0)
+            slen = self.sb.ROWS * self.sb.COLS
+            for frm_idx in range(nfrms):
+                data = bytearray([0x22] * (slen // 2))
+                offset = self.sb.COLS - frm_idx*self["step"] - self["offset"]
+                for rn, r in enumerate(self.full):
+                    for cn in range(max(0, offset), min(fw + offset, self.sb.COLS)):
+                        e = (rn * self.sb.COLS + (self.sb.COLS - 1 - cn if rn % 2 else cn))
+                        data[int(e / 2)] = data[int(e / 2)] & (0xf0 if e % 2 else 0x0f) | (
+                                        (1 if r[cn] else 2) << (0 if e % 2 else 4))
+                self.compiled.append(bytearray([int(self['speed'] >> 8), self['speed'] & 255]) + data)
+
+            phead = bytearray([int(nfrms>>8), nfrms&255, int(slen>>8), slen&255])
+            self.headers = [phead + bytearray(c["color"]) + bytearray(c["background"]) for c in self['colors']]
 
     def get_n_frames(self, cycle=0):
         return (self.sb.COLS + len(self["phrase"])*self.sb.scale*(self.sb.WIDTH+1))//self["step"]
@@ -78,12 +102,21 @@ class PhraseObject(SBObject):
                 for cn in range(max(0, offset), min(fw + offset, self.sb.COLS)):
                     if self.full[rn][cn-offset]: result[rn][cn] = fg
             return result, self["speed"]
+        if self.level == 2:
+            return self.compiled[n], self["speed"]
+
+    def get_header(self, cycle=0):
+        for s, h in zip(self.color_cumsum, self.headers):
+            if cycle % self.color_cumsum[-1] < s:
+                return h
 
 
 class ImageObject(SBObject):
     def __init__(self, obj, sb):
         self.img = None
         self.size = None
+        self.compiled = None
+        self.header = None
         super().__init__(obj, sb)
 
     def load_img(self, img):
@@ -92,13 +125,36 @@ class ImageObject(SBObject):
         return [list(data)[i * size[0]:(i + 1) * size[0]] for i in range(size[1])], size
 
     def prepare(self, level):
+        self.level = level
         if level >= 0:
             self.img, self.size = self.load_img(Image.open(os.path.join(self.sb.root, os.path.join("images", self["path"]))))
+        if level == 2:
+            slen = self.sb.ROWS * self.sb.COLS
+            # Compute header information
+            pcol = set()
+            for r in self.img: pcol.update(r)
+            pcol = list(pcol)                               # Convert set of colors to list
+            print("colors are", pcol)
+            phead = bytearray([0, 1, int(slen >> 8), slen & 255])
+            self.header = phead + b"".join(bytearray(col) for col in pcol[1:])
+            if (0, 0, 0) in pcol: pcol.remove((0, 0, 0))    # Remove black if present
+            pcol.insert(0, (0, 0, 0))                       # Re-insert black at beginning
+            pcol = {x: i+1 for i, x in enumerate(pcol)}     # Convert list of colors to dict for faster conversion
+            # Compute frame information
+            data = bytearray([0x11] * (slen // 2))
+            offset = self["startoffset"]
+            for rn, r in enumerate(self.img):
+                for cn in range(max(0, offset), min(self.size[0] + offset, self.sb.COLS)):
+                    e = (rn * self.sb.COLS + (self.sb.COLS - 1 - cn if rn % 2 else cn))
+                    data[int(e / 2)] = data[int(e / 2)] & (0xf0 if e % 2 else 0x0f) | (
+                            (pcol[r[cn - offset]]) << (0 if e % 2 else 4))
+            self.compiled = bytearray([int(self['time'] >> 8), self['time'] & 255]) + data
 
     def get_n_frames(self, cycle=0):
         return 1
 
     def get_frame(self, n, cycle=0):
+        if self.level == 2: return self.compiled, self["time"]
         result = [[[0, 0, 0]]*self.sb.COLS for x in range(self.sb.ROWS)]
         ofs = self["startoffset"]
         if ofs >= self.sb.COLS: return result, self["time"]
@@ -106,11 +162,17 @@ class ImageObject(SBObject):
             result[rn][max(ofs, 0):min(ofs+self.size[0], self.sb.COLS)] = r[max(-ofs, 0):min(self.sb.COLS-ofs, self.size[0])]
         return result, self["time"]
 
+    def get_header(self, cycle=0):
+        return self.header
+
 
 class AnimationObject(SBObject):
     def __init__(self, obj, sb):
         self.img = []
         self.size = []
+        self.compiled = []
+        self.header = None
+        self.level = -1
         super().__init__(obj, sb)
 
     def load_img(self, img):
@@ -119,18 +181,46 @@ class AnimationObject(SBObject):
         return [list(data)[i * size[0]:(i + 1) * size[0]] for i in range(size[1])], size
 
     def prepare(self, level):
-        if level >= 0:
+        self.level = level
+        if self.level >= 0:
             self.img = []
             self.size = []
             for x in self["frames"]:
                 i, s = self.load_img(Image.open(os.path.join(self.sb.root, os.path.join("images", x["path"]))))
                 self.img.append(i)
                 self.size.append(s)
+        if self.level == 2:
+            nfrms = self.get_n_frames(0)
+            slen = self.sb.ROWS * self.sb.COLS
+            # Compute header information
+            pcol = set()
+            for img in self.img:
+                for r in img: pcol.update(r)
+            pcol = list(pcol)                               # Convert set of colors to list
+            print("colors are", pcol)
+            phead = bytearray([int(nfrms >> 8), nfrms & 255, int(slen >> 8), slen & 255])
+            self.header = phead + b"".join(bytearray(col) for col in pcol[1:])
+            if (0, 0, 0) in pcol: pcol.remove((0, 0, 0))    # Remove black if present
+            pcol.insert(0, (0, 0, 0))                       # Re-insert black at beginning
+            pcol = {x: i+1 for i, x in enumerate(pcol)}     # Convert list of colors to dict for faster conversion
+            # Compute frame information
+            for it in range(self["iterations"]):
+                for f, fr in enumerate(self["frames"]):
+                    data = bytearray([0x11] * (slen // 2))
+                    offset = self["start"] + it*self["step"] + fr["offset"]
+                    sz = self.size[f][0]
+                    for rn, r in enumerate(self.img[f]):
+                        for cn in range(max(0, offset), min(sz + offset, self.sb.COLS)):
+                            e = (rn * self.sb.COLS + (self.sb.COLS - 1 - cn if rn % 2 else cn))
+                            data[int(e / 2)] = data[int(e / 2)] & (0xf0 if e % 2 else 0x0f) | (
+                                    (pcol[r[cn - offset]]) << (0 if e % 2 else 4))
+                    self.compiled.append(bytearray([int(fr['time'] >> 8), fr['time'] & 255]) + data)
 
     def get_n_frames(self, cycle=0):
         return self["iterations"]*len(self["frames"])
 
     def get_frame(self, n, cycle=0):
+        if self.level == 2: return self.compiled[n], self["frames"][n % len(self.img)]["time"]
         result = [[[0, 0, 0]]*self.sb.COLS for x in range(self.sb.ROWS)]
         total = len(self.img)
         ofs = self["start"] + self["step"]*(n // total) + self["frames"][n % total]["offset"]
@@ -139,5 +229,8 @@ class AnimationObject(SBObject):
         for rn, r in enumerate(self.img[n % total]):
             result[rn][max(ofs, 0):min(ofs+sz[0], self.sb.COLS)] = r[max(-ofs, 0):min(self.sb.COLS-ofs, sz[0])]
         return result, self["frames"][n % total]["time"]
+
+    def get_header(self, cycle=0):
+        return self.header
 
 

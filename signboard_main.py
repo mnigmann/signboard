@@ -24,8 +24,6 @@ import re
 import json
 from PIL import Image
 
-#import numpy
-#import cv2
 import sb_object
 import fcntl
 
@@ -108,7 +106,7 @@ class SignboardLoader:
         self.letters = {}
         self.WIDTH = self.HEIGHT = self.ROWS = self.COLS = self.scale = self.LENGTH = 0
 
-    def load(self, src, comp_file=None, root=None, force=False):
+    def load(self, src, comp_file=None, root=None, force=False, level=0):
         if root is None: root = self.root
         self.file = os.path.join(root, src)
         self.comp_file = comp_file or os.path.splitext(self.file)[0] + ".compiled"
@@ -152,20 +150,20 @@ class SignboardLoader:
                 for x in self.objects:
                     if x["type"] == "phrase":
                         self.sb_objects.append(sb_object.PhraseObject(x, self, self.letters_scaled))
-                        self.sb_objects[-1].prepare(1)
+                        self.sb_objects[-1].prepare(level)
                     elif x["type"] == "image":
                         self.sb_objects.append(sb_object.ImageObject(x, self))
-                        self.sb_objects[-1].prepare(0)
+                        self.sb_objects[-1].prepare(level)
                     elif x["type"] == "animation":
                         self.sb_objects.append(sb_object.AnimationObject(x, self))
-                        self.sb_objects[-1].prepare(0)
+                        self.sb_objects[-1].prepare(level)
 
                 # print(images)
                 print("Successfully loaded!")
 
                 # Render the frames in advance
                 # phrases_rendered = render(objects)
-        self.compile_frames(force)
+        # self.compile_frames(force)
 
 
     def color2bytes(self, x):
@@ -337,14 +335,14 @@ class SignboardSerial(SignboardLoader):
         """
         self.running = False
         time.sleep(0.2)         # after disabling, wait for program to reach "breakpoint"
-        super().load(src, comp_file, root, force)
+        super().load(src, comp_file, root, force, level=2)
         self.headerSent = False
         self.running = True
 
-    def run_object(self, index, cycle=0):
+    def run_object(self, obj: sb_object.SBObject, cycle=0):
         """
         Display one object on the signboard
-        :param index: The index of the object to be run
+        :param obj: SBObject object to run
         :param cycle: The current cycle. This is used for selecting the colors of phrases
         :return: None
         """
@@ -352,26 +350,22 @@ class SignboardSerial(SignboardLoader):
         numFrames = 0
         while True:
             v = self.serial.read()
-            if not self.running or index >= len(self.p):
+            if not self.running:
                 return False
             if v == b"H":
-                numFrames = len(self.p[index])
+                numFrames = obj.get_n_frames(cycle)
                 currFrame = 0  # just to be safe
                 self.headerSent = True
-                if self.objects[index]['type'] != 'phrase':
-                    self.serial.write(self.headers[index])
-                else:
-                    v = self.headers[index]
-                    self.serial.write(v[cycle % len(v)])
+                self.serial.write(obj.get_header(cycle))
                 print()
-                print("LOADING {} {}".format(index, numFrames))
+                print("LOADING {} {}".format(obj, numFrames))
                 #                print(numFrames, "num frames recvd", ser.readline())
                 #                print("colors", ser.readline())
                 #                print('time since last header', time.time() - lastHeaderSent)
 
             if v == b"F":
                 if self.headerSent:
-                    self.serial.write(self.p[index][currFrame])
+                    self.serial.write(obj.get_frame(currFrame, cycle))
                     # print("writing color", currCycle%len(v))
                     print("\rServing frame " + str(currFrame) + "/" + str(numFrames), end="")
                     currFrame += 1
@@ -384,42 +378,6 @@ class SignboardSerial(SignboardLoader):
     def close(self):
         self.serial.close()
 
-'''
-class SignboardCV2(SignboardLoader):
-    def __init__(self):
-        self.running = True
-        self.headerSent = False
-        super().__init__()
-
-    def load(self, src, comp_file=None, root=None, force=False):
-        """
-        Load a configuration file and compile its contents, if necessary.
-        :param src: The filename of the config file
-        :param comp_file: The destination for the compiled frames. Defaults to the source but with ".compiled" as an extension
-        :param root: Defaults to the current working directory
-        :return:
-        """
-        self.running = False
-        time.sleep(0.2)         # after disabling, wait for program to reach "breakpoint"
-        super().load(src, comp_file, root, force)
-        self.running = True
-
-    def run_object(self, index, cycle=0):
-        """
-        Display one object on the signboard
-        :param index: The index of the object to be run
-        :param cycle: The current cycle. This is used for selecting the colors of phrases
-        :return: None
-        """
-        for i in range(self.sb_objects[index].get_n_frames(cycle)):
-            img, t = self.sb_objects[index].get_frame(i, cycle)
-            cv2.imshow("img", cv2.resize(numpy.uint8(img), (self.COLS*10, self.ROWS*10), interpolation=cv2.INTER_NEAREST)[:, :, ::-1])
-            cv2.waitKey(t)
-        return True
-
-    def close(self):
-        pass
-'''
 
 class SignboardNative(SignboardLoader):
     def __init__(self, file):
@@ -448,7 +406,7 @@ class SignboardNative(SignboardLoader):
         super().load(src, comp_file, root, force)
         self.running = True
 
-    def run_object(self, index, cycle=0):
+    def run_object(self, obj, cycle=0):
         """
         Display one object on the signboard
         :param index: The index of the object to be run
@@ -458,9 +416,9 @@ class SignboardNative(SignboardLoader):
         currFrame = 0
         numFrames = 0
         last_time = time.time()
-        for i in range(self.sb_objects[index].get_n_frames(cycle)):
+        for i in range(obj.get_n_frames(cycle)):
             if not self.running: return False
-            img, t = self.sb_objects[index].get_frame(i, cycle)
+            img, t = obj.get_frame(i, cycle)
             data = [0]*3*self.LENGTH
             for rn, r in enumerate(img):
                 for cn, c in enumerate(r):
