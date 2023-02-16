@@ -1,97 +1,17 @@
-# To predict time of a phrase:
-# (n*0.00003+d+(5*r*c/b))*(c+s*(w+1)*l-1)
-# where:
-#  n = number of LEDs per string
-#  d = speed
-#  r = rows
-#  c = cols
-#  b = serial baud rate
-#  s = scale
-#  w = width of a character
-#  l = length of the phrase
 import struct
 
 import serial
 import os
 import argparse
 import time
-import hashlib
-import base64
 import web_manager
 import threading
-import multiprocessing
 import re
 import json
 from PIL import Image
 
 import sb_object
 import fcntl
-
-
-def compile_one(index, obj, pcol, images, begin, end, settings, letters_scaled):
-    """
-    Compiles a certain range of frames.
-
-    index:  the index of the current object
-    obj:    the current object
-    pcol:   the colors used in the object
-    images: the image data (if needed) for this object
-    begin:  the frame to start with
-    end:    the frame th end with
-    """
-    with open("/tmp/signboard.log", "a") as f: f.write("compiling...\n")
-    try:
-        ROWS = settings['rows']
-        COLS = settings['cols']
-        def setPixel(r, c):
-            if r >= ROWS or c >= COLS or r < 0 or c < 0: return -1
-            i = int((2 * COLS) - 2 + r + (2 * (COLS - 1) * ((r - 1) // 2.0)) + (c * (1 - 2 * (r % 2))))
-            if i >= settings['length']: return -1
-            return i
-        pfrms = []
-        t = obj['type']
-        if t=='phrase':
-          sWidth = settings['scale']*settings['width']
-          sHeight = settings['scale']*settings['height']
-          for frm_idx in range(begin, end):
-            data = bytearray([0x22]*(settings['rows']*settings['cols']//2))
-            for ci, c in enumerate(obj['phrase']):
-                l = letters_scaled.get(c, letters_scaled['uc'])
-                offset = settings['cols']-frm_idx+(ci*settings['scale']*(settings['width']+1)) - obj['offset']
-                if -offset > sWidth or offset > settings['cols']: continue
-                for x in range(sHeight):
-                    for y in range(sWidth):
-                        p = setPixel(settings['rows'] - sHeight + x, y + offset)
-                        if p == -1: continue
-                        data[int(p/2)] = data[int(p/2)] & (0xf0 if p%2 else 0x0f) | ((1 if l[x][y] else 2) << (0 if p%2 else 4))
-            pfrms.append(bytearray([int(obj['speed']>>8), obj['speed']&255]) + data)
-        elif t=='image':
-            i = images[obj['path']]
-            data = bytearray([pcol.index((0,0,0))]*(settings['length']//2))
-            for rn, r in enumerate(i[0]):
-                for cn, c in enumerate(r):
-                    p = setPixel(ROWS-i[1][1]+rn, cn+obj['startoffset'])
-                    if p == -1: continue
-                    data[int(p/2)] = data[int(p/2)] & (0xf0 if p%2 else 0x0f) | (pcol.index(c) << (0 if p%2 else 4))
-            pfrms.append(bytearray([int(obj['time']>>8), obj['time']&255]) + data)
-        else:
-            for x in range(obj['iterations']):
-                for iy, y in enumerate(obj['frames']):
-                    if not begin <= (len(obj['frames'])*x+iy) < end: continue
-                    data = bytearray([pcol.index((0,0,0))]*int((settings['length']+1)/2))
-                    h = images[y['path']][1][1]
-                    for rn, r in enumerate(images[y['path']][0]):
-                        for cn, c in enumerate(r):
-                            p = setPixel(ROWS-h+rn, cn+obj['start']+obj['step']*x+y['offset'])
-                            if p == -1: continue
-                            data[int(p/2)] = data[int(p/2)] & (0xf0 if p%2 else 0x0f) | (pcol.index(c) << (0 if p%2 else 4))
-                    pfrms.append(bytearray([int(y['time']>>8), y['time']&255]) + data)
-
-        return (index, pfrms, t, begin, end)
-    except Exception as e:
-        with open("/tmp/signboard.log", "a") as f: 
-            f.write(str(e))
-            f.write("\n")
 
 
 class SignboardLoader:
@@ -107,6 +27,17 @@ class SignboardLoader:
         self.WIDTH = self.HEIGHT = self.ROWS = self.COLS = self.scale = self.LENGTH = 0
 
     def load(self, src, comp_file=None, root=None, force=False, level=0):
+        """
+        Load a configuration file and compile its contents, if necessary.
+        Subclasses of SignboardLoader should call the load function of the super class in their load functions
+
+        :param src: The filename of the config file
+        :param comp_file: The destination for the compiled frames. Defaults to the source but with ".compiled" as an
+        extension
+        :param root: Defaults to the current working directory
+        :param force:
+        :param level: Determines how much frame info should be prepared in advance.
+        """
         if root is None: root = self.root
         self.file = os.path.join(root, src)
         self.comp_file = comp_file or os.path.splitext(self.file)[0] + ".compiled"
@@ -165,142 +96,15 @@ class SignboardLoader:
                 # phrases_rendered = render(objects)
         # self.compile_frames(force)
 
+    def run_object(self, obj: sb_object.SBObject, cycle=0):
+        """
+        Display one object on the signboard
 
-    def color2bytes(self, x):
-        b = bytearray("   ", "utf-8")
-        b[0] = int((x>>16)&255)
-        b[1] = int((x>>8) &255)
-        b[2] = x & 255
-        return b
-
-    def compile_frame(self, frame, col, dtime):
-        return bytearray([int(dtime>>8), dtime&255]) + b"".join([ bytearray([(col.index(frame[x])<<4) + (0 if len(frame)==x+1 else col.index(frame[x+1]))]) for x in range(0, len(frame), 2) ])
-
-
-    def apply_results(self, args):
-        index, pfrms, t, begin, end = args
-        self.p[index][begin:end]=pfrms
-
-    def compile_frames(self, force=False):
-
-        #check if previous data is available
-        self.headers = [None if x['type']!='phrase' else [None]*sum(y['duration'] for y in x['colors']) for x in self.objects]
-        self.p = [[]]*len(self.objects)
-
-
-        if force:
-            print("Forced recompile")
-        elif os.path.exists(self.comp_file):
-            print("version found")
-            with open(self.comp_file) as f:
-                j = json.load(f)
-                if len(j) == len(self.objects):
-                    for obj_index, obj in enumerate(j):
-                        h_n = hashlib.md5()
-                        h_n.update(json.dumps(self.objects[obj_index], sort_keys=True).encode())
-                        this = self.objects[obj_index]
-                        if h_n.hexdigest() == obj['hash'].strip():
-                            print("version found with matching hash for object", obj_index)
-                            self.headers[obj_index] = [base64.b64decode(x.encode()) for x in obj['header']] if isinstance(obj['header'], list) else base64.b64decode(obj['header'].encode())
-                            self.p[obj_index] = [base64.b64decode(x.encode()) for x in obj['frames']]
-                        else:
-                            print("hashes do not match for {}: old={} and new={}".format(obj_index, obj['hash'].strip(), h_n.hexdigest()))
-
-
-
-
-
-    #    rendered = signboard.render(objs, dont_render)
-    #    p_in = list(filter(lambda x: x is not None, rendered))
-
-        slen = self.ROWS*self.COLS
-        print("size of the signboard", slen)
-
-
-        obj2colors = lambda obj: list(map(list, set(map(tuple, (col for frm in obj for col in frm)))))
-
-        print("Before compiling", [bool(x) for x in self.p])
-
-        load_img = lambda x: ([list(x.getdata())[i*x.size[0]:(i+1)*x.size[0]] for i in range(x.size[1])], x.size)
-
-        comp_start = time.time()
-
-        settings = {
-            "rows": self.ROWS,
-            "cols": self.COLS,
-            "length": self.LENGTH,
-            "width": self.WIDTH,
-            "height": self.HEIGHT,
-            "scale": self.scale
-        }
-
-        for index, obj in enumerate(self.objects):
-            if bool(self.p[index]) and bool(self.p[index][0]):
-                print("Skipping compile for", index)
-                continue
-            t = obj['type']
-
-            # "images": contains image/animation data
-            images = []
-            if t == 'image': images = {obj["path"]: load_img(Image.open(os.path.join(self.root, "images/", obj["path"])))}
-            if t == 'animation': images = {f['path']: load_img(Image.open(os.path.join(self.root, "images/", f['path']))) for f in obj['frames']}
-
-            # "pcol": contains the colors used the in the object
-            if t != 'phrase':
-                pcol = [-1]
-                for x in images:
-                    [pcol.append(c) for r in images[x][0] for c in r if c not in pcol]
-            else: pcol = [-1] + [c for pattern in obj['colors'] for c in [pattern["color"], pattern["background"]]]
-
-            # "nfrms": contains the exact number of frames in the final compilation
-            if t == "phrase": nfrms = self.COLS + self.settings['scale']*(self.WIDTH+1)*len(obj['phrase']) - obj['offset']
-            elif t == "animation": nfrms = obj['iterations']*len(obj['frames'])
-            else: nfrms = 1
-
-            phead = bytearray([int(nfrms>>8), nfrms&255, int(slen>>8), slen&255])
-            if t != "phrase": self.headers[index] = phead + b"".join(bytearray(col) for col in pcol[1:])
-            else: self.headers[index] = [phead + bytearray(c["color"]) + bytearray(c["background"]) for c in obj['colors']]
-
-            # Put in blank frames
-            self.p[index] = [None]*nfrms
-
-
-            pool = multiprocessing.Pool()
-
-            if nfrms <= 50:
-                pool.apply_async(compile_one, args=(index, obj, pcol, images, 0, nfrms, settings, self.letters_scaled), callback=self.apply_results)
-            elif nfrms <=200:
-                n_proc = 0
-                while n_proc < nfrms:
-                    pool.apply_async(compile_one, args=(index, obj, pcol, images, n_proc, min(nfrms, n_proc+50), settings, self.letters_scaled), callback=self.apply_results)
-                    n_proc += 50
-            else:
-                nper = nfrms // 4 + 1
-                for x in range(4):
-                    pool.apply_async(compile_one, args=(index, obj, pcol, images, nper*x, min(nfrms, nper*x+nper), settings, self.letters_scaled), callback=self.apply_results).get()
-            pool.close()
-            pool.join()
-            print("Finished", index)
-        print("All threads terminated in", time.time() - comp_start)
-
-
-        with open(self.comp_file, "w") as f:
-            f.write("[\n")
-            for i in range(len(self.objects)):
-                object_hash = hashlib.md5()
-                object_hash.update(json.dumps(self.objects[i], sort_keys=True).encode())
-                print("Saving with hash {} for {}".format(object_hash.hexdigest(), i))
-
-                if i != 0: f.write(",\n")
-                f.write('    {\n        "hash": "%s",\n' % (object_hash.hexdigest()))
-                header_comp = json.dumps([base64.b64encode(x).decode() for x in self.headers[i]]) if isinstance(self.headers[i], list) else '"'+base64.b64encode(self.headers[i]).decode()+'"'
-                f.write('        "header": {},\n'.format(header_comp))
-                frames_comp = json.dumps([base64.b64encode(x).decode() for x in self.p[i]])
-                f.write('        "frames": {}\n'.format(frames_comp))
-                f.write("    }")
-            f.write("\n]\n")
-
-        print("After compiling", [bool(x) for x in self.p], [(i, len(x)) for i, x in enumerate(self.p) if isinstance(x, list)])
+        :param obj: SBObject object to run
+        :param cycle: The current cycle. This is used for selecting the colors of phrases
+        :return: None
+        """
+        pass
 
 
 class SignboardSerial(SignboardLoader):
@@ -326,13 +130,6 @@ class SignboardSerial(SignboardLoader):
         self.headerSent = False
 
     def load(self, src, comp_file=None, root=None, force=False):
-        """
-        Load a configuration file and compile its contents, if necessary.
-        :param src: The filename of the config file
-        :param comp_file: The destination for the compiled frames. Defaults to the source but with ".compiled" as an extension
-        :param root: Defaults to the current working directory
-        :return:
-        """
         self.running = False
         time.sleep(0.2)         # after disabling, wait for program to reach "breakpoint"
         super().load(src, comp_file, root, force, level=2)
@@ -340,12 +137,6 @@ class SignboardSerial(SignboardLoader):
         self.running = True
 
     def run_object(self, obj: sb_object.SBObject, cycle=0):
-        """
-        Display one object on the signboard
-        :param obj: SBObject object to run
-        :param cycle: The current cycle. This is used for selecting the colors of phrases
-        :return: None
-        """
         currFrame = 0
         numFrames = 0
         while True:
@@ -381,48 +172,45 @@ class SignboardSerial(SignboardLoader):
 
 class SignboardNative(SignboardLoader):
     def __init__(self, file):
+        """
+        :param file: Path to the ws281x device file. /dev/ws281x by default
+        """
         self.running = True
         self.headerSent = False
         super().__init__()
         self.fn = file
         self.chardev = None
+        self.serialization = [1, -1]
 
-    def init(self):
+    def init(self, pins, stringlen):
+        """
+        Open the ws281x device file and initialize the driver.
+
+        :param pins: List of output pins in order
+        :param stringlen: The length of each independent string of LEDs. All strings will have the same length.
+        """
         self.chardev = open(self.fn, "wb", 0)
-        print("ioctl", fcntl.ioctl(self.chardev, 0xC004EE00, struct.pack("3I", 0x0000000B, 0x00000050, 160)))
-        fcntl.ioctl(self.chardev, 0xC004EE01, struct.pack("2B", 0x10, 0));
-        fcntl.ioctl(self.chardev, 0xC004EE01, struct.pack("2B", 0x40, 1));
+        print("ioctl", fcntl.ioctl(self.chardev, 0xC004EE00, struct.pack("3I", 0x0000000B, 0x00000050, stringlen)))
+        for n, p in enumerate(pins):
+            if p < 8 or p >= 24: continue
+            fcntl.ioctl(self.chardev, 0xC004EE01, struct.pack("2B", 1<<(p-8), n))
 
     def load(self, src, comp_file=None, root=None, force=False):
-        """
-        Load a configuration file and compile its contents, if necessary.
-        :param src: The filename of the config file
-        :param comp_file: The destination for the compiled frames. Defaults to the source but with ".compiled" as an extension
-        :param root: Defaults to the current working directory
-        :return:
-        """
         self.running = False
         time.sleep(0.2)         # after disabling, wait for program to reach "breakpoint"
-        super().load(src, comp_file, root, force)
+        super().load(src, comp_file, root, force, level=1)
         self.running = True
 
-    def run_object(self, obj, cycle=0):
-        """
-        Display one object on the signboard
-        :param index: The index of the object to be run
-        :param cycle: The current cycle. This is used for selecting the colors of phrases
-        :return: None
-        """
-        currFrame = 0
-        numFrames = 0
+    def run_object(self, obj: sb_object.SBObject, cycle=0):
         last_time = time.time()
         for i in range(obj.get_n_frames(cycle)):
             if not self.running: return False
             img, t = obj.get_frame(i, cycle)
             data = [0]*3*self.LENGTH
             for rn, r in enumerate(img):
+                d = self.serialization[rn % len(self.serialization)]
                 for cn, c in enumerate(r):
-                    e = 3*(rn*self.COLS + (self.COLS-1-cn if rn%2 else cn))
+                    e = 3*(rn*self.COLS + (self.COLS-1-cn if d == -1 else cn))
                     data[e:e+3] = c
             data = bytearray(data)
             self.chardev.write(data)
@@ -432,6 +220,9 @@ class SignboardNative(SignboardLoader):
         return True
 
     def close(self):
+        """
+        Close the ws281x device file
+        """
         self.chardev.close()
 
 
@@ -460,7 +251,7 @@ if __name__ == "__main__":
 
     try:
         while True:
-            for x in range(len(signboard.objects)):
+            for x in signboard.sb_objects:
                 if not signboard.run_object(x):
                     print("Cycle has been interrupted externally")
                     break

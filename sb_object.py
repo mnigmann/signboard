@@ -4,20 +4,55 @@ import os
 
 class SBObject:
     def __init__(self, obj, sb):
+        """
+        Class representing an object that can be displayed on the signboard
+
+        :param obj: Dictionary describing the object. This parameter uses the same format as the JSON configuration
+                    files would
+        :param sb: Signboard object, typically an instance of a subclass of SignboardLoader
+        """
         self.obj = obj
         self.sb = sb
         pass
 
     def get_n_frames(self, cycle=0):
+        """
+        Return the number of frames in the object
+        """
         pass
 
     def get_frame(self, n, cycle=0):
+        """
+        Return frame n of the object. The type of the output depends on the preparation level:
+            0, 1 - Return a 2D list of colors in (R, G, B) format.
+            2 - Return a bytearray that can be transmitted to a serial buffer.
+
+        In addition to the frame data, get_frame will return the time for which the frame should be displayed.
+
+        :param n: Frame number to return
+        :param cycle: Objects that change behavior between cycles (e.g. phrases that use different colors) can use
+                      this number.
+        """
         pass
 
     def prepare(self, level):
+        """
+        Prepare some or all frame information in advance for faster frame generation
+        The level parameter defines how much should be prepared and the behavior of get_frame:
+            0 - Minimum preparation. Load images
+            1 - For phrases, prepare pixel information of the whole phrase
+            2 - Compile binary output for use with SignboardSerial
+
+        :param level: The level of preparation
+        """
         pass
 
     def get_header(self, cycle=0):
+        """
+        Return header information of the object. The type of the output depends on the preparation level:
+            0, 1 - Return None.
+            2 - Return a bytearray that can be transmitted to a serial buffer.
+        """
         pass
 
     def __getitem__(self, item):
@@ -61,8 +96,9 @@ class PhraseObject(SBObject):
                 data = bytearray([0x22] * (slen // 2))
                 offset = self.sb.COLS - frm_idx*self["step"] - self["offset"]
                 for rn, r in enumerate(self.full):
+                    d = self.sb.serialization[rn % len(self.sb.serialization)]
                     for cn in range(max(0, offset), min(fw + offset, self.sb.COLS)):
-                        e = (rn * self.sb.COLS + (self.sb.COLS - 1 - cn if rn % 2 else cn))
+                        e = (rn * self.sb.COLS + (self.sb.COLS - 1 - cn if d == -1 else cn))
                         data[int(e / 2)] = data[int(e / 2)] & (0xf0 if e % 2 else 0x0f) | (
                                         (1 if r[cn] else 2) << (0 if e % 2 else 4))
                 self.compiled.append(bytearray([int(self['speed'] >> 8), self['speed'] & 255]) + data)
@@ -117,6 +153,7 @@ class ImageObject(SBObject):
         self.size = None
         self.compiled = None
         self.header = None
+        self.full = []
         super().__init__(obj, sb)
 
     def load_img(self, img):
@@ -128,6 +165,12 @@ class ImageObject(SBObject):
         self.level = level
         if level >= 0:
             self.img, self.size = self.load_img(Image.open(os.path.join(self.sb.root, os.path.join("images", self["path"]))))
+        if level == 1:
+            self.full = [[[0, 0, 0]] * self.sb.COLS for x in range(self.sb.ROWS)]
+            ofs = self["startoffset"]
+            if ofs < self.sb.COLS:
+                for rn, r in enumerate(self.img):
+                    self.full[rn][max(ofs, 0):min(ofs+self.size[0], self.sb.COLS)] = r[max(-ofs, 0):min(self.sb.COLS-ofs, self.size[0])]
         if level == 2:
             slen = self.sb.ROWS * self.sb.COLS
             # Compute header information
@@ -144,8 +187,9 @@ class ImageObject(SBObject):
             data = bytearray([0x11] * (slen // 2))
             offset = self["startoffset"]
             for rn, r in enumerate(self.img):
+                d = self.sb.serialization[rn % len(self.sb.serialization)]
                 for cn in range(max(0, offset), min(self.size[0] + offset, self.sb.COLS)):
-                    e = (rn * self.sb.COLS + (self.sb.COLS - 1 - cn if rn % 2 else cn))
+                    e = (rn * self.sb.COLS + (self.sb.COLS - 1 - cn if d == -1 else cn))
                     data[int(e / 2)] = data[int(e / 2)] & (0xf0 if e % 2 else 0x0f) | (
                             (pcol[r[cn - offset]]) << (0 if e % 2 else 4))
             self.compiled = bytearray([int(self['time'] >> 8), self['time'] & 255]) + data
@@ -155,12 +199,7 @@ class ImageObject(SBObject):
 
     def get_frame(self, n, cycle=0):
         if self.level == 2: return self.compiled, self["time"]
-        result = [[[0, 0, 0]]*self.sb.COLS for x in range(self.sb.ROWS)]
-        ofs = self["startoffset"]
-        if ofs >= self.sb.COLS: return result, self["time"]
-        for rn, r in enumerate(self.img):
-            result[rn][max(ofs, 0):min(ofs+self.size[0], self.sb.COLS)] = r[max(-ofs, 0):min(self.sb.COLS-ofs, self.size[0])]
-        return result, self["time"]
+        return self.full, self["time"]
 
     def get_header(self, cycle=0):
         return self.header
@@ -210,8 +249,9 @@ class AnimationObject(SBObject):
                     offset = self["start"] + it*self["step"] + fr["offset"]
                     sz = self.size[f][0]
                     for rn, r in enumerate(self.img[f]):
+                        d = self.sb.serialization[rn % len(self.sb.serialization)]
                         for cn in range(max(0, offset), min(sz + offset, self.sb.COLS)):
-                            e = (rn * self.sb.COLS + (self.sb.COLS - 1 - cn if rn % 2 else cn))
+                            e = (rn * self.sb.COLS + (self.sb.COLS - 1 - cn if d == -1 else cn))
                             data[int(e / 2)] = data[int(e / 2)] & (0xf0 if e % 2 else 0x0f) | (
                                     (pcol[r[cn - offset]]) << (0 if e % 2 else 4))
                     self.compiled.append(bytearray([int(fr['time'] >> 8), fr['time'] & 255]) + data)
