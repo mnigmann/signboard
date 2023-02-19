@@ -25,6 +25,7 @@ class SignboardLoader:
         self.sb_objects = []
         self.letters = {}
         self.WIDTH = self.HEIGHT = self.ROWS = self.COLS = self.scale = self.LENGTH = 0
+        self.serialization = [1, -1]
 
     def load(self, src, comp_file=None, root=None, force=False, level=0):
         """
@@ -156,7 +157,8 @@ class SignboardSerial(SignboardLoader):
 
             if v == b"F":
                 if self.headerSent:
-                    self.serial.write(obj.get_frame(currFrame, cycle))
+                    p, t = obj.get_frame(currFrame, cycle)
+                    self.serial.write(p)
                     # print("writing color", currCycle%len(v))
                     print("\rServing frame " + str(currFrame) + "/" + str(numFrames), end="")
                     currFrame += 1
@@ -180,7 +182,6 @@ class SignboardNative(SignboardLoader):
         super().__init__()
         self.fn = file
         self.chardev = None
-        self.serialization = [1, -1]
 
     def init(self, pins, stringlen):
         """
@@ -190,7 +191,7 @@ class SignboardNative(SignboardLoader):
         :param stringlen: The length of each independent string of LEDs. All strings will have the same length.
         """
         self.chardev = open(self.fn, "wb", 0)
-        print("ioctl", fcntl.ioctl(self.chardev, 0xC004EE00, struct.pack("3I", 0x0000000B, 0x00000050, stringlen)))
+        print("ioctl", fcntl.ioctl(self.chardev, 0xC004EE00, struct.pack("3I", 0x0000000B, sum(1<<(p-8) for p in pins), stringlen)))
         for n, p in enumerate(pins):
             if p < 8 or p >= 24: continue
             fcntl.ioctl(self.chardev, 0xC004EE01, struct.pack("2B", 1<<(p-8), n))

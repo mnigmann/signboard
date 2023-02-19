@@ -100,7 +100,7 @@ class PhraseObject(SBObject):
                     for cn in range(max(0, offset), min(fw + offset, self.sb.COLS)):
                         e = (rn * self.sb.COLS + (self.sb.COLS - 1 - cn if d == -1 else cn))
                         data[int(e / 2)] = data[int(e / 2)] & (0xf0 if e % 2 else 0x0f) | (
-                                        (1 if r[cn] else 2) << (0 if e % 2 else 4))
+                                        (1 if r[cn-offset] else 2) << (0 if e % 2 else 4))
                 self.compiled.append(bytearray([int(self['speed'] >> 8), self['speed'] & 255]) + data)
 
             phead = bytearray([int(nfrms>>8), nfrms&255, int(slen>>8), slen&255])
@@ -177,12 +177,12 @@ class ImageObject(SBObject):
             pcol = set()
             for r in self.img: pcol.update(r)
             pcol = list(pcol)                               # Convert set of colors to list
-            print("colors are", pcol)
             phead = bytearray([0, 1, int(slen >> 8), slen & 255])
-            self.header = phead + b"".join(bytearray(col) for col in pcol[1:])
             if (0, 0, 0) in pcol: pcol.remove((0, 0, 0))    # Remove black if present
             pcol.insert(0, (0, 0, 0))                       # Re-insert black at beginning
+            self.header = phead + b"".join(bytearray(col) for col in pcol)
             pcol = {x: i+1 for i, x in enumerate(pcol)}     # Convert list of colors to dict for faster conversion
+            print("colors are", pcol, self.header)
             # Compute frame information
             data = bytearray([0x11] * (slen // 2))
             offset = self["startoffset"]
@@ -236,12 +236,12 @@ class AnimationObject(SBObject):
             for img in self.img:
                 for r in img: pcol.update(r)
             pcol = list(pcol)                               # Convert set of colors to list
-            print("colors are", pcol)
             phead = bytearray([int(nfrms >> 8), nfrms & 255, int(slen >> 8), slen & 255])
-            self.header = phead + b"".join(bytearray(col) for col in pcol[1:])
             if (0, 0, 0) in pcol: pcol.remove((0, 0, 0))    # Remove black if present
             pcol.insert(0, (0, 0, 0))                       # Re-insert black at beginning
+            self.header = phead + b"".join(bytearray(col) for col in pcol)
             pcol = {x: i+1 for i, x in enumerate(pcol)}     # Convert list of colors to dict for faster conversion
+            print("colors are", pcol)
             # Compute frame information
             for it in range(self["iterations"]):
                 for f, fr in enumerate(self["frames"]):
