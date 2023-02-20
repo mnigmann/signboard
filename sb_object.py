@@ -1,5 +1,6 @@
 from PIL import Image
 import os
+import random
 
 
 class SBObject:
@@ -272,5 +273,37 @@ class AnimationObject(SBObject):
 
     def get_header(self, cycle=0):
         return self.header
+
+
+
+class GameOfLifeObject(SBObject):
+    def __init__(self, obj, sb):
+        self.state = []
+        self.row = []
+        super().__init__(obj, sb)
+
+    def prepare(self, level):
+        self.state = [[int(2*random.random()) for c in range(self["width"]+2)] for r in range(self["height"]+2)]
+        self.row = [0]*(2+self["width"])
+
+    def get_n_frames(self, cycle=0):
+        return self["iterations"]
+
+    def get_frame(self, n, cycle=0):
+        if n != 0: 
+            # Update the state
+            a = h = 0
+            for r in range(1, self["height"]+1):
+                for c in range(1, self["width"]+1):
+                    n = a + self.row[c] + h + self.row[c+1] + self.state[r][c+1] + self.state[r+1][c+1] + self.state[r+1][c] + self.state[r+1][c-1]
+                    h = self.state[r][c]
+                    a = self.row[c]
+                    self.row[c] = self.state[r][c]
+                    self.state[r][c] = 1 if (n == 3 or (self.state[r][c] and 2<=n<=3)) else 0
+        else:
+            self.prepare(0)
+        x0, y0, x1, y1 = self["pos"]
+        return [[self["on"] if c else self["off"] for c in r[x0:x1]] for r in self.state[y0:y1]], self["time"]
+
 
 

@@ -89,6 +89,9 @@ class SignboardLoader:
                     elif x["type"] == "animation":
                         self.sb_objects.append(sb_object.AnimationObject(x, self))
                         self.sb_objects[-1].prepare(level)
+                    elif x["type"] == "gameoflife":
+                        self.sb_objects.append(sb_object.GameOfLifeObject(x, self))
+                        self.sb_objects[-1].prepare(level)
 
                 # print(images)
                 print("Successfully loaded!")
