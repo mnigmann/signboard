@@ -59,6 +59,9 @@ class SBObject:
     def __getitem__(self, item):
         return self.obj[item]
 
+    def __setitem__(self, key, value):
+        self.obj[key] = value
+
 
 class PhraseObject(SBObject):
     def __init__(self, obj, sb, alphabet):
@@ -82,12 +85,13 @@ class PhraseObject(SBObject):
             # Make one big image containing the whole phrase
             # A subset of this image will be displayed for every frame
             sWidth = self.sb.scale*(self.sb.WIDTH+1)
+            cWidth = self.sb.scale*self.sb.WIDTH
             self.full = [[0]*sWidth*len(self["phrase"]) for i in range(self.sb.ROWS)]
             for ci, c in enumerate(self["phrase"]):
                 l = self.alphabet.get(c, self.alphabet['uc'])
                 for rn, r in enumerate(l):
                     #print(rn, ci*self.sb.sWidth, (ci+1)*self.sb.sWidth, len(self.full[0]))
-                    self.full[rn][ci*sWidth:(ci+1)*sWidth] = r
+                    self.full[rn][ci*sWidth:ci*sWidth+cWidth] = r
         if level == 2:
             # Compile the object into a sequence of binary frames
             fw = len(self.full[0])

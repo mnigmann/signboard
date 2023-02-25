@@ -18,10 +18,17 @@ class SignboardCV2(SignboardLoader):
         self.running = True
 
     def run_object(self, obj: sb_object.SBObject, cycle=0):
-        for i in range(obj.get_n_frames(cycle)):
+        i = 0
+        n = obj.get_n_frames(cycle)
+        while i < n:
+            if not self.running: return False
             img, t = obj.get_frame(i, cycle)
+            if img is None:
+                print("get_frame returned None")
+                return True
             cv2.imshow("img", cv2.resize(numpy.uint8(img), (self.COLS*10, self.ROWS*10), interpolation=cv2.INTER_NEAREST)[:, :, ::-1])
             cv2.waitKey(t)
+            i += 1
         return True
 
     def close(self):
