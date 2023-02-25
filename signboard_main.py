@@ -4,6 +4,8 @@ import serial
 import os
 import argparse
 import time
+
+import tetris_object
 import web_manager
 import threading
 import re
@@ -92,6 +94,9 @@ class SignboardLoader:
                     elif x["type"] == "gameoflife":
                         self.sb_objects.append(sb_object.GameOfLifeObject(x, self))
                         self.sb_objects[-1].prepare(level)
+                    elif x["type"] == "tetris":
+                        self.sb_objects.append(tetris_object.TetrisObject(x, self))
+                        self.sb_objects[-1].prepare(level)
 
                 # print(images)
                 print("Successfully loaded!")
@@ -161,6 +166,7 @@ class SignboardSerial(SignboardLoader):
             if v == b"F":
                 if self.headerSent:
                     p, t = obj.get_frame(currFrame, cycle)
+                    if p is None: return True
                     self.serial.write(p)
                     # print("writing color", currCycle%len(v))
                     print("\rServing frame " + str(currFrame) + "/" + str(numFrames), end="")
@@ -207,9 +213,12 @@ class SignboardNative(SignboardLoader):
 
     def run_object(self, obj: sb_object.SBObject, cycle=0):
         last_time = time.time()
-        for i in range(obj.get_n_frames(cycle)):
+        i = 0
+        n = obj.get_n_frames(cycle)
+        while i < n:
             if not self.running: return False
             img, t = obj.get_frame(i, cycle)
+            if img is None: return True
             data = [0]*3*self.LENGTH
             for rn, r in enumerate(img):
                 d = self.serialization[rn % len(self.serialization)]
@@ -221,6 +230,7 @@ class SignboardNative(SignboardLoader):
             t = max(t, 10)
             while (time.time() - last_time <= t/1000): pass
             last_time = time.time()
+            i += 1
         return True
 
     def close(self):
