@@ -1,0 +1,21 @@
+{
+  "settings": {
+    "rows": 14,
+    "cols": 20,
+    "scale": 2,
+    "alphabet": "letters.json",
+    "password": "abcdef"
+  },
+  "objects": [
+    {
+        "type": "gameoflife",
+        "on": [255, 255, 255],
+        "off": [0, 0, 0],
+        "time": 100,
+        "width": 30,
+        "height": 30,
+        "pos": [5, 8, 25, 22],
+        "iterations": 100
+    }
+  ]
+}

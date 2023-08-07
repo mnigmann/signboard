@@ -62,11 +62,7 @@ class SignboardLoader:
                           obj["type"] == "image"}
                 images.update({p['path']: load_img(Image.open(root + "/images/" + p['path'])) for obj in self.objects if
                                obj['type'] == 'animation' for p in obj['frames']})
-                if len(images) == 0:
-                    self.LENGTH = self.COLS * self.settings['scale'] * self.HEIGHT
-                else:
-                    self.LENGTH = self.COLS * max(self.settings['scale'] * self.HEIGHT,
-                                                  images[max(images, key=lambda x: images[x][1][1])][1][1])
+                self.LENGTH = self.ROWS * self.COLS
 
                 self.letters_scaled = {letter:
                     # for each letter
@@ -220,11 +216,18 @@ class SignboardNative(SignboardLoader):
             img, t = obj.get_frame(i, cycle)
             if img is None: return True
             data = [0]*3*self.LENGTH
-            for rn, r in enumerate(img):
-                d = self.serialization[rn % len(self.serialization)]
-                for cn, c in enumerate(r):
-                    e = 3*(rn*self.COLS + (self.COLS-1-cn if d == -1 else cn))
-                    data[e:e+3] = c
+            if self.settings.get("rotation", "") == "CCW":
+                for rn, r in enumerate(img):
+                    for cn, c in enumerate(r):
+                        d = self.serialization[cn % len(self.serialization)]
+                        e = 3*(cn*self.ROWS + (self.ROWS-1-rn if d==1 else rn))
+                        data[e:e+3] = c
+            else:
+                for rn, r in enumerate(img):
+                    d = self.serialization[rn % len(self.serialization)]
+                    for cn, c in enumerate(r):
+                        e = 3*(rn*self.COLS + (self.COLS-1-cn if d == -1 else cn))
+                        data[e:e+3] = c
             data = bytearray(data)
             self.chardev.write(data)
             t = max(t, 10)

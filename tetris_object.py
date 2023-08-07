@@ -1,8 +1,12 @@
 import random
 
 import sb_object
-import cv2
 import time
+
+import RPi.GPIO as GPIO
+import os
+import mmap
+import struct
 
 
 class TetrisObject(sb_object.SBObject):
@@ -32,24 +36,28 @@ class TetrisObject(sb_object.SBObject):
             (-1, 1),
             (-1, 1)
         ]
-        self.colors = [
+        """self.colors = [
             (0, 0, 0),
             (0, 0, 0),
             (0, 255, 255),
-            (0, 128, 128),
+            (0, 60, 60),
             (0, 0, 255),
-            (0, 0, 128),
+            (0, 0, 60),
             (255, 128, 0),
-            (128, 64, 0),
+            (60, 30, 0),
             (255, 255, 0),
-            (128, 128, 0),
+            (60, 60, 0),
             (0, 255, 0),
-            (0, 128, 0),
+            (0, 60, 0),
             (255, 0, 255),
-            (128, 0, 128),
+            (60, 0, 60),
             (255, 0, 0),
-            (128, 0, 0)
-        ]
+            (60, 0, 0)
+        ]"""
+        self.colors = [(0, 0, 0), (0, 0, 0)]
+        for i in "IJLOSTZ":
+            self.colors.append(obj["colors"][i][:3])
+            self.colors.append(obj["colors"][i][3:])
         self.lasttime = 0
         self.tile = self._transform(self.tile_type, self.tile_pos, self.tile_rot)
         self.ghost = None
@@ -57,9 +65,13 @@ class TetrisObject(sb_object.SBObject):
         self.no_lock = False
         self.lines = 0
         self.score = -1
-        self.width = 10
-        self.height = 20
         super().__init__(obj, sb)
+        self.width = self.sb.COLS
+        self.height = self.sb.ROWS
+        self.gpio_mem = None
+        self.gpio_states = {}
+        self.last_htime = 0
+        self.game_start = 0
 
     def _transform(self, t, pos, rot):
         m11, m12, m21, m22 = [(1, 0, 0, 1), (0, -1, 1, 0), (-1, 0, 0, -1), (0, 1, -1, 0)][rot]
@@ -68,12 +80,14 @@ class TetrisObject(sb_object.SBObject):
 
     def prepare(self, level):
         self.state = [[0]*self.sb.COLS for x in range(self.sb.ROWS)]
+        print(self.state)
         self.new_tile()
         self.add_ghost()
         self.lines = 0
         self.score = -1
         self.no_lock = False
         self.lasttime = 0
+        self.game_start = time.time()
 
     def get_n_frames(self, cycle=0):
         # Game can continue indefinitely
@@ -89,7 +103,7 @@ class TetrisObject(sb_object.SBObject):
             if i[1] > d1[i[0]]: d1[i[0]] = i[1]
         # d2 is the upper edge of the existing tiles
         d2 = [self.height]*self.width
-        for c in range(10):
+        for c in range(self.width):
             for r in range(max(0, d1[c]+1), self.height):
                 if self.state[r][c] and r < d2[c]: d2[c] = r
         d = min(v2 - v1 for v2, v1 in zip(d2, d1)) - 1
@@ -122,10 +136,57 @@ class TetrisObject(sb_object.SBObject):
         self.tile = self._transform(self.tile_type, (self.width//2, 0), 0)
         self.set_tile(self.tile, self.tile_type)
 
+    def get_key(self, timeout):
+        if not self.gpio_mem:
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setup(18, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            GPIO.setup(23, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            GPIO.setup(16, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            GPIO.setup(20, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            self.gpio_mem = True
+        t = time.time()
+        states = {}
+        while time.time() - t < timeout/1000:
+            states = {i: GPIO.input(i) for i in [18, 23, 16, 20]}
+            # print(states, self.gpio_states)
+            if states[18] < self.gpio_states.get(18, 1):
+                time.sleep(0.030)
+                if not GPIO.input(18):
+                    self.gpio_states = states
+                    return 0
+            elif states[23] < self.gpio_states.get(23, 1):
+                time.sleep(0.030)
+                self.gpio_states = states
+                if not GPIO.input(23):
+                    self.gpio_states = states
+                    return 32
+            elif (not states[16]) and (self.gpio_states.get(16, 1) or time.time() - self.last_htime >= 0.1):
+                if self.last_htime == 0: self.last_htime = time.time() + 0.2
+                else: self.last_htime = time.time()
+                time.sleep(0.030)
+                # Move left
+                self.gpio_states = states
+                if not GPIO.input(16):
+                    self.gpio_states = states
+                    return 2
+            elif (not states[20]) and (self.gpio_states.get(20, 1) or time.time() - self.last_htime >= 0.1):
+                if self.last_htime == 0: self.last_htime = time.time() + 0.2
+                else: self.last_htime = time.time()
+                time.sleep(0.030)
+                # Move right
+                self.gpio_states = states
+                if not GPIO.input(20):
+                    self.gpio_states = states
+                    return 3
+            self.gpio_states = states
+        return -1
+
     def get_frame(self, n, cycle=0):
         if n != 0:
             if self.lasttime == 0: self.lasttime = time.time()
-            key = cv2.waitKey(int(500 - 1000*(time.time() - self.lasttime)))
+            if time.time() - self.game_start > self["time"]: return None, None
+            # key = cv2.waitKey(int(500 - 1000*(time.time() - self.lasttime)))
+            key = self.get_key(int(500 - 1000*(time.time() - self.lasttime)))
             if self.ghost: self.set_tile(self.ghost, 0)
             if key == -1 or key == 1 or time.time() - self.lasttime >= 0.5:
                 self.lasttime = time.time()
