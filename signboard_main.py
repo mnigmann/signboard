@@ -200,6 +200,7 @@ class SignboardNative(SignboardLoader):
         for n, p in enumerate(pins):
             if p < 8 or p >= 24: continue
             fcntl.ioctl(self.chardev, 0xC004EE01, struct.pack("2B", 1<<(p-8), n))
+        self.full_length = len(pins)*stringlen
 
     def load(self, src, comp_file=None, root=None, force=False):
         self.running = False
@@ -215,7 +216,7 @@ class SignboardNative(SignboardLoader):
             if not self.running: return False
             img, t = obj.get_frame(i, cycle)
             if img is None: return True
-            data = [0]*3*self.LENGTH
+            data = [0]*3*self.full_length
             if self.settings.get("rotation", "") == "CCW":
                 for rn, r in enumerate(img):
                     for cn, c in enumerate(r):
@@ -240,6 +241,9 @@ class SignboardNative(SignboardLoader):
         """
         Close the ws281x device file
         """
+        data = [0]*3*self.full_length
+        self.chardev.write(bytearray(data))
+        time.sleep(0.05)
         self.chardev.close()
 
 
@@ -247,19 +251,25 @@ if __name__ == "__main__":
     parse = argparse.ArgumentParser(description="Load signboard data from file and output to signboard via serial buffer")
     parse.add_argument("--file", dest="file", help="File containing signboard objects")
     parse.add_argument("--baud", dest="baud", type=int, default=4000000, help="Baud rate for serial connection. Default is 4000000")
-    parse.add_argument("--port", dest="port", help="Serial port of the serial buffer")
+    parse.add_argument("--port", dest="port", help="Serial port of the serial buffer", default=None)
+    parse.add_argument("--native", dest="native", help="Device file for native operation", default=None)
     parse.add_argument("--recompile", dest="force", action="store_const", const=True, help="Recompile all objects every time. Only for debugging")
     args = parse.parse_args()
     print(args.file, args.port, args.force)
 
-    signboard = SignboardSerial(args.port, args.baud)
-    signboard.load(args.file, force=args.force)
-    print("connecting...")
-    while not signboard.init():
-        time.sleep(1)
-        print(".", end="")
+    if args.native:
+        signboard = SignboardNative(args.native)
+        signboard.load(args.file, force=args.force)
+        signboard.init([12, 14], 160)
+    else:
+        signboard = SignboardSerial(args.port, args.baud)
+        signboard.load(args.file, force=args.force)
+        print("connecting...")
+        while not signboard.init():
+            time.sleep(1)
+            print(".", end="")
+        signboard.interrupt()
     print("number of objects is {}".format(len(signboard.objects)))
-    signboard.interrupt()
 
     web_manager.reload = signboard.load
     web_manager.root = signboard.root
